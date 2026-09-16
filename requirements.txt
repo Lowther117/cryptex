@@ -1,0 +1,7 @@
+cryptography>=42.0
+pillow>=10.0
+numpy>=1.24
+argon2-cffi>=23.1
+imageio-ffmpeg>=0.4.9
+sounddevice>=0.4.6
+segno>=1.6
