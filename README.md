@@ -853,3 +853,7 @@ Add the module to `cryptexlib/registry.py` if it is a new file, and a line in
 ---
 
 *Cryptex 1.4 — built for Dan Lowther, September 2026.*
+
+## Licence
+
+MIT No Attribution (MIT-0): do whatever you like with it - no credit needed, no warranty. See `LICENSE`.
