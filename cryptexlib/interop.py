@@ -603,7 +603,8 @@ def _qr_make(data, error="M", scale=8, border=4, outdir="", **_k):
     except Exception as exc:
         raise ToolError(f"Could not encode that as a QR code: {exc}. If the text is very "
                         "long, a QR code cannot hold it - shorten it or split it up.")
-    folder = outdir or "."
+    from .core import default_save_dir
+    folder = outdir or default_save_dir()
     dest = os.path.join(folder, "qr.png")
     i = 2
     while os.path.exists(dest):

@@ -1,6 +1,6 @@
 # Cryptex
 
-An encoder, decoder and cryptography toolbox for Windows and macOS. 121 tools
+An encoder, decoder and cryptography toolbox for Windows and macOS. 119 tools
 in one window: representation changes, historical ciphers with the solvers that
 break them, a full Enigma machine, real authenticated encryption, hashing,
 public keys and certificates, and interop with the formats other software

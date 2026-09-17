@@ -902,7 +902,8 @@ def _dtmf_make(data, tone_ms=120, gap_ms=80, rate=8000, outdir=""):
         if gap_n:
             pieces.append(np.zeros(gap_n))
     audio = np.concatenate(pieces)
-    dest = os.path.join(outdir or ".", "dtmf.wav")
+    from .core import default_save_dir
+    dest = os.path.join(outdir or default_save_dir(), "dtmf.wav")
     with wave.open(dest, "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
         w.writeframes((np.clip(audio, -1, 1) * 32000).astype("<i2").tobytes())

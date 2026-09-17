@@ -705,6 +705,9 @@ class App(ttk.Frame):
             self.stop_btn = ttk.Button(self.dir_btns, text=t.stop_label,
                                        command=self.stop_stream, state="disabled")
             self.stop_btn.pack(side="left", padx=(0, 8))
+            if self.streaming:      # re-rendered mid-stream, e.g. by a theme toggle
+                self.start_btn.configure(state="disabled")
+                self.stop_btn.configure(state="normal")
             return
         first = True
         for direction, label, fn in t.directions():
@@ -1015,7 +1018,10 @@ class App(ttk.Frame):
                         pass
         except queue.Empty:
             pass
-        self.after(80, self._pump)
+        finally:
+            # whatever went wrong showing one result, keep pumping - otherwise
+            # nothing is ever shown again and the app looks hung
+            self.after(80, self._pump)
 
     # -------------------------------------------------------------- output
 

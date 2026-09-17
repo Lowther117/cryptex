@@ -363,11 +363,19 @@ def _uesc(text, style):
 
 def _udesc(text):
     try:
-        out = codecs.decode(text, "unicode_escape")
+        # unicode_escape reads its input as latin-1, so anything beyond that
+        # goes in as an escape of its own rather than as mangled UTF-8 bytes
+        out = text.encode("latin-1", "backslashreplace").decode("unicode_escape")
         # unicode_escape is latin-1 based; repair UTF-8 that survived it
         try:
             out = out.encode("latin-1").decode("utf-8")
         except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+        # \ud83d\ude00 is one character written as a surrogate pair; left as
+        # two lone surrogates it cannot be displayed, saved or encoded
+        try:
+            out = out.encode("utf-16", "surrogatepass").decode("utf-16")
+        except UnicodeError:
             pass
         return html.unescape(out)
     except Exception as exc:
@@ -899,8 +907,13 @@ def _decompress(data, algo):
     if all(32 <= b < 127 or b in (9, 10, 13) for b in raw):
         from .core import decode_as, sniff_format
         guess = sniff_format(to_text(data))
-        if guess in ("hex", "base64"):
-            candidate = decode_as(data, guess)[0]
+        # sniff_format will not commit on anything short, but a few compressed
+        # bytes are only a dozen Base64 characters - so try both regardless
+        for guess in ([guess] if guess in ("hex", "base64") else ["base64", "hex"]):
+            try:
+                candidate = decode_as(data, guess)[0]
+            except ToolError:
+                continue
             out, used = decompress_bytes(candidate, algo)
             if out is not None:
                 return _decompressed_result(out, used, f"{guess} then ")

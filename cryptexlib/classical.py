@@ -713,8 +713,9 @@ def _xor(data, key, key_format, out_format, in_format="auto"):
                           note=(detected + "The result is readable text.").strip())
     except UnicodeDecodeError:
         pass
-    from .core import pretty_hex
-    return Result(text=pretty_hex(out), data=out,
+    # plain hex rather than a hex dump: it is what "Input is: auto" can read
+    # back, which is the whole promise of un-XORing what you produced
+    return Result(text=out.hex(), data=out,
                   note=detected + "The result is not printable text, so it is shown as hex. "
                                   "Use Save to keep the real bytes.")
 
@@ -800,6 +801,13 @@ def _otp(text, pad, mode, dec):
     import secrets
     if mode.startswith("bytes"):
         raw = to_bytes(text)
+        if dec and pad.strip():
+            # encoding writes the ciphertext as hex, so that is what comes back
+            try:
+                raw = bytes.fromhex("".join(text.split()))
+            except ValueError:
+                raise ToolError("In bytes mode the ciphertext is hex, as the encoder "
+                                "wrote it - this is not valid hex.")
         if not pad.strip():
             if dec:
                 raise ToolError("Decoding needs the pad that was used.")
@@ -807,9 +815,15 @@ def _otp(text, pad, mode, dec):
             out = bytes(a ^ b for a, b in zip(raw, kb))
             return Result(text=out.hex(), data=out,
                           note=f"Generated pad (keep this, you cannot decode without it):\n{kb.hex()}")
-        kb = bytes.fromhex("".join(c for c in pad.lower() if c in "0123456789abcdef"))
+        digits = "".join(c for c in pad.lower() if c in "0123456789abcdef")
+        if len(digits) % 2:
+            raise ToolError("The pad has to be hex with an even number of digits.")
+        kb = bytes.fromhex(digits)
         if len(kb) < len(raw):
             raise ToolError(f"Pad is {len(kb)} bytes but the message needs {len(raw)}.")
+        if not dec:
+            out = bytes(a ^ b for a, b in zip(raw, kb))
+            return Result(text=out.hex(), data=out)
         return Result(data=bytes(a ^ b for a, b in zip(raw, kb)),
                       text=bytes(a ^ b for a, b in zip(raw, kb)).decode("utf-8", errors="replace"))
     letters = strip_non_alpha(text).upper()

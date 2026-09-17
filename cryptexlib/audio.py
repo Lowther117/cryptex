@@ -87,7 +87,8 @@ def media_info(path: str) -> str:
         return ""
     try:
         out = subprocess.run([exe, "-hide_banner", "-i", path],
-                             capture_output=True, text=True, timeout=30,
+                             capture_output=True, text=True, errors="replace",
+                             stdin=subprocess.DEVNULL, timeout=30,
                              **_no_window()).stderr
     except Exception:
         return ""
@@ -163,7 +164,8 @@ def to_pcm_wav(path: str, rate: int | None = None) -> tuple[str, bool]:
         cmd += ["-ar", str(int(rate))]
     cmd += ["-c:a", "pcm_s16le", out]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=900, **_no_window())
+        res = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                             stdin=subprocess.DEVNULL, timeout=900, **_no_window())
     except subprocess.TimeoutExpired as exc:
         raise ToolError("ffmpeg took too long converting that file.") from exc
     if res.returncode != 0 or not os.path.isfile(out):

@@ -255,7 +255,10 @@ def _dec_file(path, password, outdir):
         cipher = "ChaCha20" if meta.get("cipher", "").startswith("chacha") else "AES"
         aead = _aead(key, cipher)
         out_dir = outdir or os.path.dirname(os.path.abspath(path))
-        name = meta.get("name") or os.path.basename(path).replace(".cryptex", "")
+        # the header is not authenticated, so the name in it is only ever a
+        # name - never a path that could climb out of the chosen folder
+        name = (os.path.basename(str(meta.get("name") or "").replace("\\", "/"))
+                or os.path.basename(path).replace(".cryptex", ""))
         out = os.path.join(out_dir, name)
         n = 1
         while os.path.exists(out):
@@ -263,25 +266,33 @@ def _dec_file(path, password, outdir):
             out = os.path.join(out_dir, f"{stem} ({n}){ext}")
             n += 1
         i = 0
+        failed, last_tag = False, None
         with open(out, "wb") as dst:
             while True:
                 head = src.read(4)
                 if not head:
                     break
-                clen = struct.unpack("<I", head)[0]
+                clen = struct.unpack("<I", head)[0] if len(head) == 4 else 0
                 ct = src.read(clen)
                 nonce = base + struct.pack("<I", i)
                 for tag in (b"C", b"L"):
                     try:
                         dst.write(aead.decrypt(nonce, ct, tag))
+                        last_tag = tag
                         break
                     except Exception:
                         continue
                 else:
-                    os.unlink(out)
-                    raise ToolError("Decryption failed at chunk %d — wrong password, or the "
-                                    "file has been altered or truncated." % i) from None
+                    failed = True
+                    break
                 i += 1
+        # Only the final chunk is sealed as "L", so a file cut off at a chunk
+        # boundary shows up here. The output is removed after it is closed -
+        # Windows will not delete a file that is still open.
+        if failed or last_tag != b"L":
+            os.unlink(out)
+            raise ToolError("Decryption failed at chunk %d — wrong password, or the "
+                            "file has been altered or truncated." % i) from None
     return Result(file_path=out,
                   rows=[("Encrypted", path), ("Restored to", out),
                         ("Original name", meta.get("name", "?")),

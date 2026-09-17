@@ -59,7 +59,7 @@ def _gronsfeld(text, key, dec):
         raise ToolError("Gronsfeld needs a numeric key, e.g. 31415.")
     out, j = [], 0
     for c in to_text(text):
-        if c.isalpha():
+        if "a" <= c <= "z" or "A" <= c <= "Z":    # isalpha() is true for é, Ω ...
             base = 65 if c.isupper() else 97
             shift = digits[j % len(digits)]
             shift = -shift if dec else shift

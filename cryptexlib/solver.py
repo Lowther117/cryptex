@@ -466,13 +466,18 @@ def _t_railfence(text, raw):
     body = clean_ws(text)
     if len(body) < 10 or len(body) > 6000 or not _mostly_letters(body, 0.6):
         return []
+    # The rail fence tool moves spaces along with the letters, so a message
+    # with spaces in it only comes back if they are left where they are.
+    whole = text.strip("\r\n")
+    sources = [body] if whole == body else [whole, body]
     scored = []
     for rails in range(2, min(13, len(body) // 2)):
-        try:
-            cand = _rail(body, rails, 0, True)
-        except Exception:
-            continue
-        scored.append((readability(cand), rails, cand))
+        for src in sources:
+            try:
+                cand = _rail(src, rails, 0, True)
+            except Exception:
+                continue
+            scored.append((readability(cand), rails, cand))
     scored.sort(reverse=True)
     return [(f"Rail fence, {r} rails", cand) for _s, r, cand in scored[:2]]
 
@@ -574,7 +579,9 @@ def _hillclimb_substitution(text, rounds=6):
     """
     import random
     from .language import ALPHA, letter_loglik
-    letters = _letters(text).upper()
+    # A-Z only: isalpha() lets an accented letter through, and the key table
+    # below has no entry for it
+    letters = "".join(c for c in _letters(text).upper() if c in ALPHA)
     if len(letters) < 80:
         return None
     rng = random.Random(11)
