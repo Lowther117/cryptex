@@ -340,12 +340,66 @@ class LiveSource:
                 extra = sd.WasapiSettings(loopback=True)
             except Exception:
                 extra = None
-        self.stream = sd.InputStream(device=self.device, channels=self.channels,
-                                     samplerate=self.rate, blocksize=self.block,
-                                     dtype="float32", callback=self._callback,
-                                     extra_settings=extra)
-        self.stream.start()
-        return self
+        try:
+            dev = sd.query_devices(self.device)
+        except Exception:
+            dev = {}
+        # A WASAPI loopback stream must be opened with the *output* device's own
+        # channel count and sample rate - its shared-mode mix format - not with
+        # the mono the decoder wants. Getting that number wrong is what raises
+        # PaErrorCode -9998 (invalid channels). Bluetooth headsets are the usual
+        # culprit: they flip between a 2-channel stereo profile and a 1-channel
+        # hands-free one, so the safe move is to try the device's reported count
+        # first and fall back through the sensible alternatives. Whatever comes
+        # in, the callback averages it down to mono.
+        native_key = "max_output_channels" if self.loopback else "max_input_channels"
+        native_ch = int(dev.get(native_key, 0) or 0)
+        native_rate = int(dev.get("default_samplerate", self.rate) or self.rate)
+        ch_opts, seen = [], set()
+        for c in ([native_ch] if native_ch else []) + [self.channels, 2, 1]:
+            if c and c > 0 and c not in seen:
+                seen.add(c)
+                ch_opts.append(c)
+        rate_opts, seen_r = [], set()
+        for r in [self.rate, native_rate]:
+            if r and r not in seen_r:
+                seen_r.add(r)
+                rate_opts.append(r)
+        last = None
+        for r in rate_opts:
+            for c in ch_opts:
+                try:
+                    self.stream = sd.InputStream(
+                        device=self.device, channels=c, samplerate=r,
+                        blocksize=self.block, dtype="float32",
+                        callback=self._callback, extra_settings=extra)
+                    self.stream.start()
+                    self.channels, self.rate = c, r
+                    return self
+                except Exception as exc:
+                    last = exc
+                    self.stream = None
+        raise ToolError(self._explain_open_failure(last))
+
+    def _explain_open_failure(self, err):
+        code = ""
+        try:
+            code = str(err)
+        except Exception:
+            code = "the sound device refused to open"
+        if self.loopback:
+            return ("Could not open that loopback device (" + code + ").\n\n"
+                    "Loopback records whatever a device is playing, and Windows is fussy "
+                    "about it - Bluetooth headphones especially, because they switch "
+                    "between stereo and a mono headset mode. Things to try:\n"
+                    "  - Pick a different '[loopback]' device - your actual speakers or the "
+                    "PC's own output usually work where Bluetooth headphones do not.\n"
+                    "  - Make sure something is actually playing through that device.\n"
+                    "  - Or select a real input (a microphone, line-in or 'Stereo Mix') "
+                    "instead of a loopback.")
+        return ("Could not open that input (" + code + "). Try a different device or "
+                "sample rate, and check nothing else has exclusive use of it.")
+
 
     def blocks(self, stop_event: threading.Event):
         import queue as _q

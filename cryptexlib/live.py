@@ -527,6 +527,7 @@ def _listen_stream(stop_event, source="Microphone or line in", device="", decode
         rate = int(sample_rate) if str(sample_rate).strip().isdigit() else int(drate)
         src = LiveSource(device=idx, rate=rate, block=4096, loopback=loop,
                          channels=min(2, ch) if loop else 1).start()
+        rate = src.rate   # start() may have settled on the device's own rate
         where = label
 
     save_dir = save_to or default_save_dir()
