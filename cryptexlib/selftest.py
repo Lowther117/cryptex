@@ -120,6 +120,14 @@ CASES: dict[str, dict] = {
     "manifest": dict(skip="exercised separately"),
     "manifest-check": dict(skip="exercised separately"),
     "listen": dict(skip="exercised separately"),
+    "defang": dict(text="Visit http://evil.example.com/path and mail bad@evil.com",
+                   expect="Visit http://evil.example.com/path and mail bad@evil.com"),
+    "timestamps": dict(text="1758196800", expect_in="2025"),
+    "ip-tools": dict(text="8.8.8.8", expect_in="global"),
+    "url-dissect": dict(text="https://x.example.com/a?id=1&utm_source=e&fbclid=z",
+                        expect_in="tracking"),
+    "email-headers": dict(text=None),
+    "validate-id": dict(text="4111111111111111", expect_in="Visa"),
     "dtmf-make": dict(skip="exercised separately"),
     "audio-hide": dict(skip="exercised separately"),
     "audio-extract": dict(skip="exercised separately"),
@@ -182,6 +190,13 @@ def run(verbose=True):
     CASES["xor-crack"]["text"] = _text(xt)
     CASES["xor-crack"]["params"] = dict(maxlen=16, input_format="hex")
     CASES["xor-crack"]["expect_in"] = "Attack at dawn"
+
+    CASES["email-headers"]["text"] = (
+        "Received: from mail.evil.example (mail.evil.example [203.0.113.9]) "
+        "by mx.good.com; Thu, 18 Sep 2025 12:00:00 +0000\n"
+        "From: CEO <ceo@good.com>\nTo: victim@good.com\nSubject: Urgent\n"
+        "Authentication-Results: mx.good.com; spf=fail dkim=fail")
+    CASES["email-headers"]["expect_in"] = "hop"
 
     key = b"SUPERSECRETKEY" * 8
     plain = b"the meeting is at noon tomorrow by the old bridge as agreed"

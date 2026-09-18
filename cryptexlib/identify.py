@@ -283,6 +283,14 @@ def _c_hidden_and_tokens(s, body):
         out.append(("age encrypted file", 99,
                     "The age-encryption.org header - a file encrypted with age.",
                     "Use the age tool with your secret identity or the passphrase."))
+    if "hxxp" in low or "[.]" in s or "[at]" in low or "(dot)" in low:
+        out.append(("Defanged indicator", 90,
+                    "A defanged URL, IP or email (hxxp, [.], [at]) - made safe to share.",
+                    "Refang it with the defang tool to get the real indicator back."))
+    if "Received:" in s and ("From:" in s or "from " in s):
+        out.append(("Email headers", 88,
+                    "Raw email headers with a Received chain.",
+                    "Run the email-header analyser to trace the delivery path."))
     if s.strip().startswith("AGE-SECRET-KEY-1"):
         out.append(("age secret identity", 99, "An age private key.",
                     "Paste it into the age tool to decrypt."))
@@ -427,6 +435,7 @@ SUGGEST = [
     ("Text with something hidden in it", "zero-width"),
     ("age encrypted file", "age"), ("age secret identity", "age"),
     ("age recipient key", "age"),
+    ("Defanged indicator", "defang"), ("Email headers", "email-headers"),
     ("Authenticator set-up URI", "totp"),
     ("Shamir secret share", "shamir"),
     ("Checksum manifest", "manifest-check"),

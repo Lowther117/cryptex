@@ -1,13 +1,14 @@
 # Cryptex
 
-An encoder, decoder and cryptography toolbox for Windows and macOS. 119 tools
+An encoder, decoder and cryptography toolbox for Windows and macOS. 125 tools
 in one window: representation changes, historical ciphers with the solvers that
 break them, a full Enigma machine, real authenticated encryption, hashing,
 public keys and certificates, and interop with the formats other software
 speaks - age, QR codes and PKCS#12. Plus steganography for images,
 audio and text, one-time codes and split secrets, and a set of radio decoders -
 slow-scan television, RTTY, PSK31 and AX.25 packet - that work from a file, from
-a video, or live off the air as it arrives.
+a video, or live off the air as it arrives. And a set of offline forensics and
+OSINT utilities for the indicators an investigation throws up.
 
 Everything runs on your own machine. Nothing is uploaded, and no password, key
 or file leaves the computer.
@@ -23,7 +24,7 @@ or file leaves the computer.
 | `run.bat` | Windows, run from source without building an exe. Sets up a virtual environment the first time. |
 | `run.command` | macOS, run from source without building an app. |
 | `python cryptex.py` | Any platform, if you already have Python 3.9+ with tkinter and the requirements installed. |
-| `Cryptex selftest` | Runs all 119 tools and writes `cryptex-selftest.txt` (`python cryptex.py selftest` does the same from source). The build scripts do this for you and refuse to claim success if anything fails. |
+| `Cryptex selftest` | Runs all 125 tools and writes `cryptex-selftest.txt` (`python cryptex.py selftest` does the same from source). The build scripts do this for you and refuse to claim success if anything fails. |
 
 The repository is deliberately flat — no Windows/Mac subfolders. The extension
 already says which operating system a file is for, and `%~dp0` / `$(dirname
@@ -217,6 +218,17 @@ next.
 | **Image metadata** | Shows the camera, date and GPS position buried in a photograph - and removes them |
 | **Read a message from an image** | Pulls a hidden message back out of a picture |
 | **Read a message from audio** | Pulls a hidden message back out of a WAV |
+
+### Forensics & OSINT
+
+| Tool | What it does |
+|---|---|
+| **Defang / refang indicators** | Make a URL, IP or email safe to share - or turn a defanged one back |
+| **Email header analyser** | Read raw email headers - the delivery path, the real sender, SPF/DKIM |
+| **IP / CIDR toolkit** | Normalise an address, expand a range, convert to and from an integer |
+| **Identifier validator** | Check the check-digit on a card number, IMEI, IBAN or ISBN |
+| **Timestamp decoder** | Turn a raw number into a date - Unix, Windows FILETIME, Apple, WebKit |
+| **URL dissector** | Split a URL into its parts and strip tracking parameters |
 
 ### Signals
 
@@ -537,6 +549,46 @@ expect - or opens one back into PEM.
 
 ---
 
+## Forensics and OSINT
+
+A set of offline utilities for the indicators an investigation or an incident
+throws at you. None of them touch the network - they take something you have
+been handed and make it readable. The "go and look it up online" side of OSINT
+is a different kind of tool and deliberately not here.
+
+**Defang and refang.** When a malicious URL or IP goes into a report or an
+email, you do not want it to become a live clickable link. Defanging turns
+`http` into `hxxp` and dots into `[.]`, so the indicator is readable but inert;
+refang reverses it, and understands every style people use - `[.]`, `(dot)`,
+`hxxp`, `hXXp` and the rest.
+
+**Timestamp decoder.** The same instant is a different number under every
+system's clock. Paste a raw value and it shows the date under Unix (seconds
+through nanoseconds), Windows FILETIME, Apple's 2001 epoch and WebKit/Chrome
+time at once, and ticks the one that lands in a believable range - which is how
+you tell where the number came from.
+
+**IP and CIDR toolkit.** A single address gives you its integer and hex forms,
+reverse-DNS name, expanded IPv6 and whether it is public, private or reserved;
+a CIDR range gives you the netmask, host count, usable range and broadcast; a
+bare integer turns back into an address.
+
+**URL dissector.** Splits a URL into its parts, decodes the percent-encoding,
+flags credentials hidden in the link, and strips the tracking parameters
+(`utm_*`, `fbclid`, `gclid` and the rest), handing back a clean URL.
+
+**Email-header analyser.** Reads the `Received:` chain - the paper trail of
+every server a message passed through - in order, pulls out the real
+originating IP, and reports the SPF, DKIM and DMARC results. A failed SPF or
+DKIM is the clearest single sign of a forged sender.
+
+**Identifier validator.** Runs the right check digit for whatever you paste -
+Luhn for cards and IMEIs (and it names the card brand), mod-97 for IBANs, the
+weighted sums for ISBN-10 and ISBN-13. It only proves the number is
+well-formed, not that it is real - and it says so.
+
+---
+
 ## Tokens and split secrets
 
 **Authenticator codes.** The six digits are not sent to you and are not random:
@@ -824,6 +876,7 @@ cryptexlib/
   analysis.py         frequency, entropy, Kasiski, hex dump, compare, crib drag, cipher id
   classical_extra.py  Porta, Gronsfeld, Bifid, Trifid, four-square, Nihilist, Hill, frac. Morse
   interop.py          age, QR codes, key/cert conversion, PKCS#12
+  osint.py            defang/refang, timestamps, IP/CIDR, URL, email headers, validators
   enigma.py           the machine, the fast integer core, and the solver
   radio.py            RTTY, PSK31 and AX.25 packet - decode and generate
   stego.py            LSB images, bit planes, zero-width text, carving, EXIF
@@ -852,8 +905,4 @@ Add the module to `cryptexlib/registry.py` if it is a new file, and a line in
 
 ---
 
-*Cryptex 1.4 — built for Dan Lowther, September 2026.*
-
-## Licence
-
-MIT No Attribution (MIT-0): do whatever you like with it - no credit needed, no warranty. See `LICENSE`.
+*Cryptex 1.5 — built for Dan Lowther, September 2026.*

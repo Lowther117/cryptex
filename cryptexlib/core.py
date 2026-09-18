@@ -135,7 +135,7 @@ REGISTRY: dict[str, Tool] = {}
 # to learn in: work out what you have, then decode it, then the real crypto.
 CATEGORY_ORDER = ["Identify", "Encodings", "Classical ciphers", "Analysis",
                   "Encryption", "Hashing", "Keys & certificates",
-                  "Interop", "Tokens & secrets", "Steganography", "Signals"]
+                  "Interop", "Tokens & secrets", "Steganography", "Forensics & OSINT", "Signals"]
 
 
 def register(tool: Tool) -> Tool:

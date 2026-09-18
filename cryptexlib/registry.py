@@ -13,6 +13,7 @@ from . import interop       # noqa: F401
 from . import keys          # noqa: F401
 from . import live          # noqa: F401
 from . import modern        # noqa: F401
+from . import osint         # noqa: F401
 from . import radio         # noqa: F401
 from . import signals       # noqa: F401
 from . import solver        # noqa: F401
