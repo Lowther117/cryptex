@@ -513,6 +513,8 @@ def _listen_stream(stop_event, source="Microphone or line in", device="", decode
         src = FileSource(path, block=8192, realtime=bool(realtime)).start()
         rate = src.rate
         where = os.path.basename(path)
+        quiet_hint = ("This file is almost silent - check it actually contains the tones, "
+                      "and that it is the right file.")
     else:
         chosen = None
         inputs = list_inputs()
@@ -528,10 +530,15 @@ def _listen_stream(stop_event, source="Microphone or line in", device="", decode
             from .audio import LoopbackSource
             rate = int(sample_rate) if str(sample_rate).strip().isdigit() else 48000
             src = LoopbackSource(name=idx, rate=rate, block=4096).start()
+            quiet_hint = ("This loopback is returning silence. Windows cannot tap a Bluetooth "
+                          "output - it reads as silent - so route playback through a wired or "
+                          "onboard output (e.g. Realtek Digital Output, or the monitor) and loop "
+                          "back that device instead. Or use 'A file, played through'.")
         else:
             rate = int(sample_rate) if str(sample_rate).strip().isdigit() else int(drate)
             src = LiveSource(device=idx, rate=rate, block=4096, loopback=False,
                              channels=1).start()
+            quiet_hint = "Very quiet - check the input level, or that the right device is selected."
         rate = src.rate   # start() may settle on the device's own rate
         where = label
 
@@ -563,17 +570,18 @@ def _listen_stream(stop_event, source="Microphone or line in", device="", decode
             if now - last_emit < 0.5 and since_emit < 64:
                 continue
             last_emit, since_emit = now, 0
-            yield _listen_result(dec, where, rate, rms, heard, started)
+            yield _listen_result(dec, where, rate, rms, heard, started, quiet_hint=quiet_hint)
     finally:
         try:
             dec.flush()
         except Exception:
             pass
         src.stop()
-    yield _listen_result(dec, where, rate, rms, heard, started, final=True)
+    yield _listen_result(dec, where, rate, rms, heard, started, final=True, quiet_hint=quiet_hint)
 
 
-def _listen_result(dec, where, rate, rms, heard, started, final=False):
+def _listen_result(dec, where, rate, rms, heard, started, final=False,
+                   quiet_hint="Very quiet - check the input level or the device."):
     from .audio import level_bar
     import time as _t
     secs = heard / float(rate)
@@ -598,13 +606,11 @@ def _listen_result(dec, where, rate, rms, heard, started, final=False):
             rows.append(("Latest", dec.pictures[-1]))
         return Result(image_path=path, rows=rows, headers=["", ""],
                       note=head + dec.status() + "   " + level_bar(rms, 20),
-                      warn=("Very quiet - check the input level or the cable."
-                            if rms < 0.004 and secs > 3 else ""))
+                      warn=(quiet_hint if rms < 0.004 and secs > 3 else ""))
     text = dec.text()
     return Result(text=text, rows=rows, headers=["", ""], prefer="text",
                   note=head + dec.status(),
-                  warn=("Very quiet - check the input level or the cable."
-                        if rms < 0.004 and secs > 3 else ""))
+                  warn=(quiet_hint if rms < 0.004 and secs > 3 else ""))
 
 
 def _input_choices():
