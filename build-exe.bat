@@ -53,6 +53,8 @@ if exist "%~dp0dist" rmdir /s /q "%~dp0dist"
   --collect-all PIL ^
   --collect-all imageio_ffmpeg ^
   --hidden-import sounddevice ^
+  --hidden-import soundcard ^
+  --collect-submodules soundcard ^
   --collect-submodules cryptexlib ^
   --hidden-import _cffi_backend ^
   --exclude-module pytest ^

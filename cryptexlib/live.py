@@ -524,10 +524,15 @@ def _listen_stream(stop_event, source="Microphone or line in", device="", decode
         if chosen is None:
             chosen = inputs[0]
         label, idx, ch, drate, loop = chosen
-        rate = int(sample_rate) if str(sample_rate).strip().isdigit() else int(drate)
-        src = LiveSource(device=idx, rate=rate, block=4096, loopback=loop,
-                         channels=min(2, ch) if loop else 1).start()
-        rate = src.rate   # start() may have settled on the device's own rate
+        if loop:
+            from .audio import LoopbackSource
+            rate = int(sample_rate) if str(sample_rate).strip().isdigit() else 48000
+            src = LoopbackSource(name=idx, rate=rate, block=4096).start()
+        else:
+            rate = int(sample_rate) if str(sample_rate).strip().isdigit() else int(drate)
+            src = LiveSource(device=idx, rate=rate, block=4096, loopback=False,
+                             channels=1).start()
+        rate = src.rate   # start() may settle on the device's own rate
         where = label
 
     save_dir = save_to or default_save_dir()

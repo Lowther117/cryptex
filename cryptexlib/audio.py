@@ -270,6 +270,17 @@ def sounddevice():
     return sd
 
 
+def soundcard_lib():
+    """The 'soundcard' library, which does WASAPI loopback where PortAudio can
+    not. Returns None if it is not installed rather than raising, so the rest of
+    the audio path keeps working without it."""
+    try:
+        import soundcard
+        return soundcard
+    except Exception:
+        return None
+
+
 def list_inputs():
     """[(label, index, channels, default_rate, loopback)] for every usable input.
 
@@ -296,13 +307,18 @@ def list_inputs():
             tag = "  (default)" if i == default_in else ""
             out.append((f"{d['name']} [{api}]{tag}", i, d["max_input_channels"],
                         int(d["default_samplerate"]), False))
+    # Loopback ("what this device is playing") on Windows goes through the
+    # soundcard library, because PortAudio/sounddevice cannot do WASAPI loopback
+    # at all. Each output speaker becomes a loopback entry, keyed by its name.
     if os.name == "nt":
-        for i, d in enumerate(devices):
-            api = apis[d["hostapi"]]["name"] if d["hostapi"] < len(apis) else ""
-            if d["max_output_channels"] > 0 and "WASAPI" in api.upper():
-                out.append((f"{d['name']} [loopback - what this device is playing]",
-                            i, min(2, d["max_output_channels"]),
-                            int(d["default_samplerate"]), True))
+        sc = soundcard_lib()
+        if sc is not None:
+            try:
+                for spk in sc.all_speakers():
+                    out.append((f"{spk.name} [loopback - what this device is playing]",
+                                spk.name, 2, 48000, True))
+            except Exception:
+                pass
     if not out:
         raise ToolError("No audio input devices were found.")
     return out
@@ -417,6 +433,87 @@ class LiveSource:
             except Exception:
                 pass
             self.stream = None
+
+
+class LoopbackSource:
+    """Windows WASAPI loopback via the soundcard library: blocks of mono
+    float32 of whatever a speaker is playing, delivered through a queue.
+
+    PortAudio cannot do loopback, so this is a separate backend. Recording runs
+    on its own thread, so if nothing is playing (and the loopback simply waits)
+    the interface stays responsive - the meter shows silence until audio flows.
+    """
+
+    def __init__(self, name=None, rate=48000, block=4096):
+        import queue as _q
+        self.name = name
+        self.rate = int(rate)
+        self.block = int(block)
+        self.q: _q.Queue = _q.Queue(maxsize=200)
+        self._stop = threading.Event()
+        self._thread = None
+        self._error = None
+        self.channels = 2
+        self.dropped = 0
+
+    def start(self):
+        sc = soundcard_lib()
+        if sc is None:
+            raise ToolError("Live loopback needs the 'soundcard' library. The built app "
+                            "bundles it; from source install it with:  pip install soundcard")
+        try:
+            if self.name:
+                self._mic = sc.get_microphone(self.name, include_loopback=True)
+            else:
+                self._mic = sc.get_microphone(sc.default_speaker().name, include_loopback=True)
+        except Exception as exc:
+            raise ToolError(f"Could not open that loopback device ({exc}). Pick a different "
+                            "output, or a real input instead.")
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        # give the recorder a moment to open, and surface an immediate failure
+        import time as _t
+        _t.sleep(0.3)
+        if self._error is not None:
+            raise ToolError(f"The loopback recorder would not start ({self._error}). Try a "
+                            "different output device, or use a real input.")
+        return self
+
+    def _run(self):
+        import numpy as np
+        try:
+            with self._mic.recorder(samplerate=self.rate) as rec:
+                while not self._stop.is_set():
+                    data = rec.record(numframes=self.block)
+                    if data is None or len(data) == 0:
+                        continue
+                    arr = np.asarray(data, dtype=np.float32)
+                    mono = arr.mean(axis=1) if arr.ndim > 1 and arr.shape[1] > 1 else arr.ravel()
+                    try:
+                        self.q.put_nowait(mono.copy())
+                    except Exception:
+                        self.dropped += 1
+        except Exception as exc:  # noqa: BLE001
+            self._error = exc
+
+    def blocks(self, stop_event: threading.Event):
+        import queue as _q
+        while not stop_event.is_set() and not self._stop.is_set():
+            try:
+                yield self.q.get(timeout=0.25)
+            except _q.Empty:
+                if self._error is not None:
+                    return
+                continue
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            try:
+                self._thread.join(timeout=1.0)
+            except Exception:
+                pass
+            self._thread = None
 
 
 class FileSource:
