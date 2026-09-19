@@ -37,6 +37,11 @@ if errorlevel 1 goto :fail
 "%VPY%" -m pip install --only-binary :all: pyinstaller >> "%LOG%" 2>&1
 if errorlevel 1 goto :fail
 
+REM  Windows loopback ("decode what a device is playing") needs NO extra driver:
+REM  it uses WASAPI loopback, which is built into Windows, via the 'soundcard'
+REM  package already installed above and bundled into the exe below. Note that
+REM  Windows cannot loop back a Bluetooth output - use a wired/onboard output.
+
 echo [4/6] Checking the code before packaging...
 REM  The working directory is already this folder, so '.' is the source tree.
 REM  %~dp0 must NOT go inside the Python string: it always ends in a backslash,

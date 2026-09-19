@@ -47,6 +47,40 @@ brew_install() {
   brew install "$@" < /dev/null || die "brew install $* failed."
 }
 
+# macOS has no built-in way to capture "what a device is playing", so the live
+# loopback option needs a virtual audio driver. BlackHole is the free standard.
+# This is OPTIONAL and never fatal: file decoding and real inputs work without
+# it, so the build always carries on. Set CRYPTEX_SKIP_BLACKHOLE=1 to skip.
+ensure_blackhole() {
+  if ls /Library/Audio/Plug-Ins/HAL 2>/dev/null | grep -qi blackhole; then
+    echo "      BlackHole is already installed - nothing to do."
+    return 0
+  fi
+  if [ -n "$CRYPTEX_SKIP_BLACKHOLE" ]; then
+    echo "      CRYPTEX_SKIP_BLACKHOLE is set - skipping the loopback driver."
+    return 0
+  fi
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "      Homebrew is not present, so BlackHole is being skipped (it is only"
+    echo "      needed for live loopback). Install it any time with:"
+    echo "         brew install --cask blackhole-2ch"
+    return 0
+  fi
+  echo "      Installing BlackHole - a virtual audio device used for loopback."
+  echo "      macOS will ask for your password: it installs a system audio driver."
+  if brew install --cask blackhole-2ch < /dev/tty; then
+    echo "      BlackHole installed."
+    echo "      To capture what you are playing: open 'Audio MIDI Setup', create a"
+    echo "      Multi-Output Device that ticks BOTH your speakers/headphones AND"
+    echo "      'BlackHole 2ch', and set it as the system output. You then still"
+    echo "      hear the sound, and Cryptex can loop back the BlackHole side."
+  else
+    echo "      NOTE: BlackHole did not install (skipped or cancelled). The app still"
+    echo "      builds - live loopback just will not be available until it is present."
+    echo "      File decoding and real inputs work regardless."
+  fi
+}
+
 # Apple's /usr/bin/python3 links against system Tk 8.5, which PyInstaller
 # cannot bundle: the app builds and then never opens a window. Only accept an
 # interpreter whose tkinter reports 8.6 or newer. Resolve candidates with
@@ -80,7 +114,7 @@ pick_python() {
   return 1
 }
 
-echo "[1/7] Finding a Python with a usable Tk..."
+echo "[1/8] Finding a Python with a usable Tk..."
 PY="$(pick_python)" || {
   echo "      None found. Installing Python and Tk through Homebrew..."
   brew_install python python-tk
@@ -89,22 +123,25 @@ PY="$(pick_python)" || {
 echo "      using $PY"
 "$PY" -c 'import sys,tkinter;print("      python",sys.version.split()[0],"tk",tkinter.TkVersion)'
 
-echo "[2/7] Creating a clean build environment..."
+echo "[2/8] Creating a clean build environment..."
 VENV="$HERE/.venv-build-mac"
 rm -rf "$VENV"
 "$PY" -m venv "$VENV" || die "Could not create the build environment."
 VPY="$VENV/bin/python"
 
-echo "[3/7] Installing dependencies (wheels only, no compiling)..."
+echo "[3/8] Installing dependencies (wheels only, no compiling)..."
 "$VPY" -m pip install --upgrade pip wheel >/dev/null || die "pip would not upgrade."
 "$VPY" -m pip install --only-binary :all: -r "$HERE/requirements.txt" || die "A dependency has no wheel for this Mac."
 "$VPY" -m pip install --only-binary :all: pyinstaller || die "PyInstaller would not install."
 
-echo "[4/7] Checking the code before packaging..."
+echo "[4/8] Setting up audio loopback (BlackHole, optional)..."
+ensure_blackhole
+
+echo "[5/8] Checking the code before packaging..."
 "$VPY" -c "import sys; sys.path.insert(0,'.'); from cryptexlib import registry; print('      tools:', len(registry.REGISTRY))" \
   || die "The application does not import cleanly."
 
-echo "[5/7] Packaging (this takes a couple of minutes)..."
+echo "[6/8] Packaging (this takes a couple of minutes)..."
 rm -rf "$HERE/build" "$HERE/dist"
 "$VPY" -m PyInstaller --noconfirm --clean --windowed \
   --name "Cryptex" \
@@ -129,7 +166,7 @@ rm -rf "$HERE/build" "$HERE/dist"
   "$HERE/cryptex_app.py" || die "PyInstaller failed - see the log above."
 [ -d "$HERE/dist/Cryptex.app" ] || die "dist/Cryptex.app was not produced."
 
-echo "[6/7] Clearing quarantine and signing locally..."
+echo "[7/8] Clearing quarantine and signing locally..."
 # the bundled ffmpeg has to stay executable, and the microphone entitlement
 # has to be declared or macOS silently hands the app an empty input stream
 PLIST="$HERE/dist/Cryptex.app/Contents/Info.plist"
@@ -142,7 +179,7 @@ find "$HERE/dist/Cryptex.app" -name "ffmpeg*" -type f -exec chmod +x {} \; 2>/de
 xattr -cr "$HERE/dist/Cryptex.app" || true
 codesign --force --deep --sign - "$HERE/dist/Cryptex.app" || die "Ad-hoc signing failed."
 
-echo "[7/7] Running the self-test on the built app..."
+echo "[8/8] Running the self-test on the built app..."
 echo "      This exercises every tool - a couple of minutes, and it will look"
 echo "      idle while it works."
 rm -f "$HERE/dist/cryptex-selftest.txt"
