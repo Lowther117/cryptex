@@ -23,7 +23,7 @@ from .core import (CATEGORY_ORDER, REGISTRY, Param, Result, Tool, ToolError,
                    search, settings_path)
 
 APP = "Cryptex"
-VERSION = "1.3"
+VERSION = "1.5"
 SETTINGS = settings_path()
 
 CATEGORY_BLURB = {

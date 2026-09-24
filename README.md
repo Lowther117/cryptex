@@ -856,7 +856,8 @@ build-exe.bat         Windows build          build-app.command   macOS build
 ensure_python.ps1     Windows: find or install a real Python
 run.bat / run.command from-source launchers
 requirements.txt      cryptography, pillow, numpy, argon2-cffi,
-                      imageio-ffmpeg (bundled ffmpeg), sounddevice (live audio)
+                      imageio-ffmpeg (bundled ffmpeg), sounddevice (live audio),
+                      soundcard (loopback), segno (QR codes)
 cryptexlib/
   core.py             the Tool/Param/Result registry everything else plugs into
   ui.py               the window - built entirely from the registry
