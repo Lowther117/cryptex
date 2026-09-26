@@ -4,13 +4,26 @@ REM Run Cryptex from source on Windows, setting up a virtual environment the
 REM first time. Use build-exe.bat if you want a standalone .exe instead.
 cd /d "%~dp0"
 set "VENV=%~dp0.venv"
-if not exist "%VENV%\Scripts\python.exe" (
-  echo First run - setting Python up. This happens once.
-  for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ensure_python.ps1"`) do set "PY=%%P"
-  if not defined PY ( echo Could not find or install Python. & pause & exit /b 1 )
-  "%PY%" -m venv "%VENV%" || ( echo Could not create the environment. & pause & exit /b 1 )
-  "%VENV%\Scripts\python.exe" -m pip install --upgrade pip >nul
-  "%VENV%\Scripts\python.exe" -m pip install --only-binary :all: -r "%~dp0requirements.txt" || ( pause & exit /b 1 )
-)
+if exist "%VENV%\Scripts\python.exe" goto :run
+
+echo First run - setting Python up. This happens once.
+REM  %PY% is set and used in separate statements on purpose: inside one
+REM  parenthesised block cmd expands variables before the block runs, so the
+REM  venv step used to run with an empty interpreter path and fail.
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ensure_python.ps1"`) do set "PY=%%P"
+if not defined PY goto :nopython
+if not exist "%PY%" goto :nopython
+"%PY%" -m venv "%VENV%"
+if errorlevel 1 ( echo Could not create the environment. & pause & exit /b 1 )
+"%VENV%\Scripts\python.exe" -m pip install --upgrade pip >nul
+"%VENV%\Scripts\python.exe" -m pip install --only-binary :all: -r "%~dp0requirements.txt"
+if errorlevel 1 ( pause & exit /b 1 )
+
+:run
 start "" "%VENV%\Scripts\pythonw.exe" "%~dp0cryptex.py"
 exit /b 0
+
+:nopython
+echo Could not find or install Python.
+pause
+exit /b 1
