@@ -85,12 +85,22 @@ REM  the report would be read before it exists. start /wait blocks until the
 REM  self-test has actually finished.
 start "Cryptex self-test" /wait "%~dp0dist\Cryptex.exe" selftest
 popd
-if exist "%~dp0dist\cryptex-selftest.txt" (
-  type "%~dp0dist\cryptex-selftest.txt"
-  findstr /C:"PROBLEMS FOUND" "%~dp0dist\cryptex-selftest.txt" >nul && goto :selftestfail
-) else (
-  echo       ^(no self-test report was written - check it by hand^)
-)
+REM  No report means the built program never got as far as writing one - it
+REM  did not start, or crashed - so that is a failure, not a pass.
+if not exist "%~dp0dist\cryptex-selftest.txt" goto :noreport
+type "%~dp0dist\cryptex-selftest.txt"
+findstr /C:"PROBLEMS FOUND" "%~dp0dist\cryptex-selftest.txt" >nul && goto :noreport
+echo.
+echo ===============================================
+echo   BUILT, BUT THE SELF-TEST WROTE NO REPORT.
+echo   dist\Cryptex.exe probably does not start - run it by hand,
+echo   and look for cryptex-crash.log beside it.
+echo ===============================================
+echo.
+pause
+exit /b 3
+
+:selftestfail
 
 echo.
 echo ===============================================

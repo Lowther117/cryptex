@@ -200,7 +200,18 @@ if [ -f "$HERE/dist/cryptex-selftest.txt" ]; then
     exit 2
   fi
 else
-  echo "      (no self-test report was written - check it by hand)"
+  # no report means the built app never got as far as writing one - it did
+  # not start, or crashed - so that is a failure, not a pass
+  echo
+  echo "==============================================="
+  echo "  BUILT, BUT THE SELF-TEST WROTE NO REPORT."
+  echo "  dist/Cryptex.app probably does not start - open it by hand,"
+  echo "  and look for cryptex-crash.log beside it."
+  echo "==============================================="
+  echo
+  echo "Press return to close."
+  read -r
+  exit 3
 fi
 
 echo

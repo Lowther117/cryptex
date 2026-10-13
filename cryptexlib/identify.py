@@ -116,6 +116,13 @@ def _c_base(s, body):
             extra = f"Decodes to printable text: {dec[:40].decode('latin-1')!r}"
         if any(c.isdigit() for c in body) and any(c.islower() for c in body) and any(c.isupper() for c in body):
             conf += 8   # mixed case + digits is the Base64 look, not the English look
+            # Padding only appears when the byte count is not a multiple of
+            # three, and is often stripped anyway, so its absence proves
+            # nothing. A long run that decodes cleanly and uses a character
+            # Base58 leaves out (+ / 0 O I l) is Base64 rather than Base58.
+            if (not body.endswith("=") and pad_ok and dec and len(body) >= 16
+                    and any(c in "+/0OIl" for c in body)):
+                conf += 5
         if wordy:
             conf -= 30  # spaced, all-alphabetic words are a sentence, not Base64
         out.append(("Base64", min(conf, 97), why + " " + extra,

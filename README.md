@@ -24,7 +24,7 @@ or file leaves the computer.
 | `run.bat` | Windows, run from source without building an exe. Sets up a virtual environment the first time. |
 | `run.command` | macOS, run from source without building an app. |
 | `python cryptex.py` | Any platform, if you already have Python 3.9+ with tkinter and the requirements installed. |
-| `Cryptex selftest` | Runs all 125 tools and writes `cryptex-selftest.txt` (`python cryptex.py selftest` does the same from source). The build scripts do this for you and refuse to claim success if anything fails. |
+| `Cryptex selftest` | Runs all 125 tools and writes `cryptex-selftest.txt` (`python cryptex.py selftest` does the same from source). The build scripts do this for you and refuse to claim success if anything fails, or if no report is written. |
 
 The repository is deliberately flat — no Windows/Mac subfolders. The extension
 already says which operating system a file is for, and `%~dp0` / `$(dirname
@@ -673,7 +673,12 @@ renamed. Your original is never deleted — delete it yourself once you have
 confirmed the encrypted copy opens.
 
 **Folders are zipped, then encrypted**, rather than encrypted file by file. That
-hides the file names as well as the contents.
+hides the file names as well as the contents. The zip is made unencrypted in
+your temp folder first and deleted afterwards — deleted, not shredded — so on a
+shared machine or an unencrypted disk a copy may be recoverable.
+
+An existing `.cryptex` is never overwritten: a second one gets `(1)` in its name,
+and a file that fails part-way leaves nothing half-written behind.
 
 **Secure delete is honest about SSDs.** Overwriting works on a mechanical hard
 drive. On flash storage wear levelling means the drive writes your overwrite

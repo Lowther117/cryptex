@@ -73,7 +73,9 @@ def _wrap(message, password) -> bytes:
     if password:
         from .modern import _aead, _derive, _pack
         salt, nonce = os.urandom(16), os.urandom(12)
-        key, meta = _derive(password, salt, "scrypt", 4)
+        # the same strength as encrypted files; the scrypt cost travels in the
+        # header, so pictures hidden with the old lighter setting still open
+        key, meta = _derive(password, salt, "scrypt", 200000)
         meta["cipher"] = "aes-256-gcm"
         meta["v"] = 1
         body = _pack(meta, salt, nonce,

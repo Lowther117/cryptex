@@ -256,6 +256,11 @@ def run(verbose=True):
             if verbose and not isinstance(exc, ToolError):
                 traceback.print_exc()
 
+    # ---- a setting named like the input argument makes every click a TypeError
+    # ("got multiple values for argument"), so it is caught here, not by users
+    clashes = _param_clashes()
+    record("Tool settings do not clash with the input", not clashes, ", ".join(clashes))
+
     # ---- signatures, file encryption and slow-scan, end to end
     tmp = tempfile.mkdtemp(prefix="cryptex-selftest-")
     try:
@@ -363,6 +368,34 @@ def run(verbose=True):
     if verbose:
         print("\n" + report)
     return 0 if not failed else 1
+
+
+def _missing(what, prefix="skipped: "):
+    """A library that will not import. Running from source that is only a
+    skip - an optional extra may simply not be installed - but the built app
+    is meant to carry everything, so there it is a failure."""
+    import sys
+    if getattr(sys, "frozen", False):
+        return False, f"missing from this build: {what}"
+    return True, f"{prefix}{what}"
+
+
+def _param_clashes():
+    """Tools whose input goes in positionally under a name a setting also uses."""
+    import inspect
+    bad = []
+    for tid, tool in REGISTRY.items():
+        if tool.input_kind == "none":
+            continue                    # called with keywords only
+        for direction, _label, fn in tool.directions():
+            try:
+                args = [a for a in inspect.signature(fn).parameters.values()
+                        if a.kind in (a.POSITIONAL_ONLY, a.POSITIONAL_OR_KEYWORD)]
+            except (TypeError, ValueError):
+                continue
+            if args and args[0].name in {p.name for p in tool.params_for(direction)}:
+                bad.append(f"{tid} ({direction}: {args[0].name!r})")
+    return bad
 
 
 def _solver_check():
@@ -624,7 +657,7 @@ def _stego_check(tmp):
         import numpy as np
         from PIL import Image
     except ImportError as exc:
-        return True, f"skipped: {exc}"
+        return _missing(exc)
     rng = np.random.default_rng(11)
     src = os.path.join(tmp, "cover.png")
     Image.fromarray(rng.integers(0, 256, (180, 240, 3), dtype=np.uint8)).save(src)
@@ -682,7 +715,7 @@ def _radio_check(tmp):
     try:
         import numpy as np
     except ImportError as exc:
-        return True, f"skipped: {exc}"
+        return _missing(exc)
     import wave
 
     from .signals import read_wav
@@ -888,7 +921,7 @@ def _qr_check(tmp):
     try:
         import segno  # noqa: F401
     except ImportError:
-        return True, "skipped: segno not installed in this environment"
+        return _missing("segno not installed in this environment")
     # short input is exactly the case make() would turn into an unscannable
     # Micro QR, so check a short string and confirm it is a full QR
     out = REGISTRY["qr"].encode("age1qz", error="M", scale=4, outdir=tmp)
@@ -908,7 +941,7 @@ def _signals2_check(tmp):
     try:
         import numpy as np
     except ImportError as exc:
-        return True, f"skipped: {exc}"
+        return _missing(exc)
     import os
     import wave
 
@@ -948,7 +981,7 @@ def _signals2_check(tmp):
     try:
         from PIL import Image
     except ImportError:
-        return True, "stego-detect skipped: Pillow missing"
+        return _missing("Pillow missing", "stego-detect skipped: ")
     rng = np.random.default_rng(4)
     grad = np.stack([np.tile(np.linspace(0, 255, 320), (240, 1))] * 3, -1).astype(np.uint8)
     clean = os.path.join(tmp, "clean.png")

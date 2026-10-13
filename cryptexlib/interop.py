@@ -198,7 +198,10 @@ def _age_header_mac(file_key, header_no_mac):
 
 def _age_encrypt(data, recipient="", passphrase="", armour=True, **_k):
     from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
-    recipient, passphrase = recipient.strip(), passphrase.strip()
+    # a passphrase is used exactly as typed - spaces are characters too - but
+    # one that is nothing but spaces counts as not given
+    recipient = recipient.strip()
+    passphrase = passphrase if passphrase.strip() else ""
     if not recipient and not passphrase:
         raise ToolError("Give a recipient (an age1... public key) to encrypt to, or a "
                         "passphrase.")
@@ -249,6 +252,11 @@ def _age_encrypt(data, recipient="", passphrase="", armour=True, **_k):
                   note="Encrypted with age.")
 
 
+AGE_MAX_WORK = 20
+AGE_BAD_HEADER = ("The header of this age file is damaged and cannot be read. Check you have "
+                  "the whole file.")
+
+
 def _age_decrypt(data, identity="", passphrase="", **_k):
     from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
     raw = to_bytes(data)
@@ -264,15 +272,19 @@ def _age_decrypt(data, identity="", passphrase="", **_k):
     if not raw.startswith(b"age-encryption.org"):
         raise ToolError("This is not an age file (the age-encryption.org header is missing).")
 
-    nl = raw.index(b"\n---")
-    header_body = raw[:nl]
-    rest = raw[nl + 4:]
-    mac_end = rest.index(b"\n")
-    mac_b64 = rest[:mac_end].strip()
-    payload = rest[mac_end + 1:]
-    stanzas = header_body.decode().split("\n")[1:]
+    try:
+        nl = raw.index(b"\n---")
+        header_body = raw[:nl]
+        rest = raw[nl + 4:]
+        mac_end = rest.index(b"\n")
+        mac_b64 = rest[:mac_end].strip()
+        payload = rest[mac_end + 1:]
+        stanzas = header_body.decode().split("\n")[1:]
+    except ValueError:
+        raise ToolError(AGE_BAD_HEADER) from None
 
-    identity, passphrase = identity.strip(), passphrase.strip()
+    identity = identity.strip()
+    passphrase = passphrase if passphrase.strip() else ""
     file_key = None
     i = 0
     while i < len(stanzas):
@@ -295,19 +307,39 @@ def _age_decrypt(data, identity="", passphrase="", **_k):
                 pass
         elif line.startswith("-> scrypt ") and passphrase:
             parts = line.split()
-            salt_b64, work = parts[2], parts[3]
-            wrapped = _unb64(stanzas[i + 1])
-            import hashlib
-            salt = _unb64(salt_b64)
-            wrap = hashlib.scrypt(passphrase.encode(),
-                                  salt=b"age-encryption.org/v1/scrypt" + salt,
-                                  n=1 << int(work), r=8, p=1, dklen=32,
-                                  maxmem=(1 << int(work)) * 8 * 128 * 2)
             try:
-                file_key = ChaCha20Poly1305(wrap).decrypt(b"\x00" * 12, wrapped, None)
-                break
-            except Exception:
+                salt_b64, work = parts[2], parts[3]
+                wrapped = _unb64(stanzas[i + 1])
+                salt = _unb64(salt_b64)
+                work = int(work) if work.isdigit() else -1
+            except (IndexError, ValueError):
+                raise ToolError(AGE_BAD_HEADER) from None
+            # The header is only checked after the key is made, so the work
+            # factor is capped first: each step doubles the time and memory.
+            # age itself writes 18, as Cryptex does; 20 needs 1 GB.
+            if not 1 <= work <= AGE_MAX_WORK:
+                raise ToolError(f"This age file asks for an scrypt work factor of {work}; "
+                                f"Cryptex opens up to {AGE_MAX_WORK} (age normally uses 18). "
+                                "Anything higher needs more memory than is sensible, and "
+                                "usually means the file is damaged or tampered with.")
+            import hashlib
+            # Earlier versions of Cryptex trimmed spaces from the ends of the
+            # passphrase, so a file they made is also tried that way
+            tries = [passphrase] + ([passphrase.strip()] if passphrase.strip() != passphrase
+                                    else [])
+            for attempt in tries:
+                wrap = hashlib.scrypt(attempt.encode(),
+                                      salt=b"age-encryption.org/v1/scrypt" + salt,
+                                      n=1 << work, r=8, p=1, dklen=32,
+                                      maxmem=min((1 << work) * 8 * 128 * 2, 2 ** 31 - 1))
+                try:
+                    file_key = ChaCha20Poly1305(wrap).decrypt(b"\x00" * 12, wrapped, None)
+                    break
+                except Exception:
+                    continue
+            if file_key is None:
                 raise ToolError("Wrong passphrase for this age file.")
+            break
         i += 2 if line.startswith("-> ") else 1
 
     if file_key is None:

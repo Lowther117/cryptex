@@ -37,6 +37,8 @@ CATEGORY_BLURB = {
     "Analysis": "Measure it before you guess: frequencies, entropy, repeats, raw bytes.",
     "Steganography": "Hidden, not encrypted: messages in pictures and text, and how to find them.",
     "Tokens & secrets": "One-time codes, web tokens, split secrets and checksum manifests.",
+    "Interop": "Work with other tools' formats: age files, key and certificate conversions, PKCS#12, QR codes.",
+    "Forensics & OSINT": "Investigate what you were sent: email headers, timestamps, IPs, URLs and identifiers.",
 }
 
 
@@ -183,6 +185,13 @@ class App(ttk.Frame):
         self.root.bind("<Control-q>", lambda e: self._on_close())
         self.root.bind("<Control-f>", lambda e: self.search_entry.focus_set())
         self.root.bind("<Control-d>", lambda e: self.toggle_theme())
+        # Ctrl+D is also Tk's emacs-style "delete a character" in text fields.
+        # The class binding runs first, so it is replaced: the theme switch is
+        # the only thing that happens, and "break" stops the root binding
+        # above toggling it a second time.
+        for cls in ("Text", "Entry", "TEntry", "TCombobox", "Spinbox", "TSpinbox"):
+            self.root.bind_class(cls, "<Control-d>",
+                                 lambda e: (self.toggle_theme(), "break")[1])
         self.root.bind("<Control-Return>", lambda e: self.chain())
         self.root.bind("<Control-C>", lambda e: self.copy_output())
         self.root.bind("<F5>", lambda e: self.run_primary())
@@ -1227,7 +1236,29 @@ class App(ttk.Frame):
         self.theme_btn.configure(text=theme.short_label(theme.next_theme(self.theme_name)))
         self._recolour()
         if self.tool:
+            # The tool panel is rebuilt so every widget picks up the new
+            # colours - carry across what was typed in the settings (passwords,
+            # keys) and what the output was showing, rather than wiping them.
+            values = self._param_values()
+            result = self.last_result
+            shown = self.output_text.get("1.0", "end-1c") if result is None else ""
+            status = (self.status.cget("text"), str(self.status.cget("style")))
             self._render_tool()
+            for name, value in values.items():
+                var = self.param_vars.get(name)
+                try:
+                    if isinstance(var, tk.Text):
+                        var.delete("1.0", "end")
+                        var.insert("1.0", value)
+                    elif var is not None:
+                        var.set(value)
+                except (tk.TclError, ValueError):
+                    pass
+            if result is not None:
+                self.show_result(result)
+            elif shown:                  # an error message, say
+                self.output_text.insert("1.0", shown)
+            self.status.configure(text=status[0], style=status[1])
 
     def show_about(self):
         messagebox.showinfo(

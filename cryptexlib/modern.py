@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import secrets
 import string
@@ -60,18 +61,63 @@ def _derive(password: str, salt: bytes, kdf: str, work: int) -> tuple[bytes, dic
     return key, {"kdf": "pbkdf2-sha256", "iter": work}
 
 
+BAD_HEADER = ("The header of this encrypted data is damaged and cannot be read. Check you "
+              "have the whole thing, exactly as it was saved.")
+
+# The header is not authenticated - nothing can be checked until the key is
+# derived - so a damaged or doctored one could ask for hours of PBKDF2 or
+# gigabytes of memory before failing. Everything Cryptex writes is well inside
+# these (at most 20 million PBKDF2 rounds, scrypt N 2^17, Argon2id 64 MB).
+KDF_LIMITS = {
+    "pbkdf2-sha256": {"iter": (1, 50_000_000)},
+    "scrypt": {"n": (2, 1 << 20), "r": (1, 32), "p": (1, 16)},
+    "argon2id": {"t": (1, 256), "m": (8, 1 << 20), "p": (1, 16)},   # m in KiB: 1 GiB
+}
+
+
+def _kdf_settings(meta) -> tuple[str, dict]:
+    """The KDF and its numbers from a header, or a readable refusal."""
+    if not isinstance(meta, dict):
+        raise ToolError(BAD_HEADER)
+    k = meta.get("kdf")
+    if k not in ("argon2id", "scrypt"):
+        k = "pbkdf2-sha256"
+    vals = {}
+    for field, (low, high) in KDF_LIMITS[k].items():
+        v = meta.get(field)
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ToolError(BAD_HEADER)
+        if not low <= v <= high:
+            raise ToolError(f"This header asks for {k} with {field} = {v:,}, far beyond "
+                            "anything Cryptex writes. It has been damaged or tampered with, "
+                            "so Cryptex will not spend the time and memory trying.")
+        vals[field] = v
+    if k == "scrypt" and (vals["n"] & (vals["n"] - 1) or vals["n"] * vals["r"] * 128 > 1 << 30):
+        raise ToolError("This header's scrypt settings are not valid, or would need more than "
+                        "1 GB of memory. It has been damaged or tampered with.")
+    if k == "argon2id" and vals["m"] < 8 * vals["p"]:
+        raise ToolError(BAD_HEADER)
+    return k, vals
+
+
 def _rederive(password: str, salt: bytes, meta: dict) -> bytes:
     import hashlib
-    k = meta.get("kdf")
+    k, v = _kdf_settings(meta)
     if k == "argon2id":
-        from argon2.low_level import Type, hash_secret_raw
-        return hash_secret_raw(password.encode(), salt, time_cost=meta["t"],
-                               memory_cost=meta["m"], parallelism=meta["p"],
+        try:
+            from argon2.low_level import Type, hash_secret_raw
+        except ImportError:
+            raise ToolError("This was encrypted with Argon2id, which needs the argon2-cffi "
+                            "package: pip install argon2-cffi") from None
+        return hash_secret_raw(password.encode(), salt, time_cost=v["t"],
+                               memory_cost=v["m"], parallelism=v["p"],
                                hash_len=32, type=Type.ID)
     if k == "scrypt":
-        return hashlib.scrypt(password.encode(), salt=salt, n=meta["n"], r=meta["r"],
-                              p=meta["p"], dklen=32, maxmem=meta["n"] * 8 * 128 * 3)
-    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, meta["iter"], 32)
+        # maxmem is a C long, which is 32 bits on Windows
+        return hashlib.scrypt(password.encode(), salt=salt, n=v["n"], r=v["r"],
+                              p=v["p"], dklen=32,
+                              maxmem=min(v["n"] * v["r"] * 128 * 3, 2 ** 31 - 1))
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, v["iter"], 32)
 
 
 def _aead(key: bytes, cipher: str):
@@ -113,15 +159,20 @@ def _unpack(raw: bytes):
     if not raw.startswith(MAGIC):
         raise ToolError("This does not look like something Cryptex encrypted "
                         "(the CRYPTEX1 header is missing). Check you pasted the whole thing.")
-    p = len(MAGIC)
-    hlen = struct.unpack_from("<H", raw, p)[0]
-    p += 2
-    meta = json.loads(raw[p:p + hlen])
-    p += hlen
-    slen = raw[p]; p += 1
-    salt = raw[p:p + slen]; p += slen
-    nlen = raw[p]; p += 1
-    nonce = raw[p:p + nlen]; p += nlen
+    try:
+        p = len(MAGIC)
+        hlen = struct.unpack_from("<H", raw, p)[0]
+        p += 2
+        meta = json.loads(raw[p:p + hlen])
+        p += hlen
+        slen = raw[p]; p += 1
+        salt = raw[p:p + slen]; p += slen
+        nlen = raw[p]; p += 1
+        nonce = raw[p:p + nlen]; p += nlen
+    except (struct.error, ValueError, IndexError):
+        raise ToolError(BAD_HEADER) from None
+    if not isinstance(meta, dict):
+        raise ToolError(BAD_HEADER)
     return meta, salt, nonce, raw[p:]
 
 
@@ -152,7 +203,7 @@ def _dec_text(data, password, aad):
             raw = b64_any(txt)
     meta, salt, nonce, ct = _unpack(raw)
     key = _rederive(password, salt, meta)
-    cipher = "ChaCha20" if meta.get("cipher", "").startswith("chacha") else "AES"
+    cipher = "ChaCha20" if str(meta.get("cipher", "")).startswith("chacha") else "AES"
     try:
         pt = _aead(key, cipher).decrypt(nonce, ct, aad.encode() if aad else None)
     except Exception:
@@ -209,21 +260,40 @@ def _enc_file(path, password, cipher, kdf, work, outdir):
     aead = _aead(key, cipher)
     base = os.urandom(8)
     out_dir = outdir or os.path.dirname(os.path.abspath(path))
-    out = os.path.join(out_dir, os.path.basename(path) + ".cryptex")
+    # never overwrite an earlier .cryptex - take "name (1).cryptex" instead,
+    # as decrypting does
+    name = os.path.basename(path) + ".cryptex"
+    out = os.path.join(out_dir, name)
+    n = 1
+    while os.path.exists(out):
+        stem, ext = os.path.splitext(name)
+        out = os.path.join(out_dir, f"{stem} ({n}){ext}")
+        n += 1
     head = json.dumps(meta, separators=(",", ":")).encode()
-    with open(path, "rb") as src, open(out, "wb") as dst:
-        dst.write(MAGIC + struct.pack("<H", len(head)) + head +
-                  bytes([len(salt)]) + salt + bytes([len(base)]) + base)
-        i = 0
-        while True:
-            chunk = src.read(CHUNK)
-            last = len(chunk) < CHUNK
-            nonce = base + struct.pack("<I", i)
-            ct = aead.encrypt(nonce, chunk, b"L" if last else b"C")
-            dst.write(struct.pack("<I", len(ct)) + ct)
-            i += 1
-            if last:
-                break
+    # written under a temporary name and renamed only once complete, so a
+    # failure part-way (disk full, unreadable file) leaves nothing half-made
+    part = out + ".part"
+    try:
+        with open(path, "rb") as src, open(part, "wb") as dst:
+            dst.write(MAGIC + struct.pack("<H", len(head)) + head +
+                      bytes([len(salt)]) + salt + bytes([len(base)]) + base)
+            i = 0
+            while True:
+                chunk = src.read(CHUNK)
+                last = len(chunk) < CHUNK
+                nonce = base + struct.pack("<I", i)
+                ct = aead.encrypt(nonce, chunk, b"L" if last else b"C")
+                dst.write(struct.pack("<I", len(ct)) + ct)
+                i += 1
+                if last:
+                    break
+        os.replace(part, out)
+    except BaseException:
+        try:
+            os.unlink(part)          # closed by now - Windows will not delete an open file
+        except OSError:
+            pass
+        raise
     return Result(file_path=out,
                   rows=[("Original", path), ("Encrypted", out),
                         ("Cipher", meta["cipher"]), ("Key derivation", meta["kdf"]),
@@ -247,12 +317,17 @@ def _dec_file(path, password, outdir):
             raise ToolError("That is not a Cryptex-encrypted file. Encrypted files "
                             "start with a CRYPTEX1 header and normally end in "
                             ".cryptex.")
-        hlen = struct.unpack("<H", src.read(2))[0]
-        meta = json.loads(src.read(hlen))
-        salt = src.read(src.read(1)[0])
-        base = src.read(src.read(1)[0])
+        try:
+            hlen = struct.unpack("<H", src.read(2))[0]
+            meta = json.loads(src.read(hlen))
+            salt = src.read(src.read(1)[0])
+            base = src.read(src.read(1)[0])
+        except (struct.error, ValueError, IndexError):
+            raise ToolError(BAD_HEADER) from None
+        if not isinstance(meta, dict):
+            raise ToolError(BAD_HEADER)
         key = _rederive(password, salt, meta)
-        cipher = "ChaCha20" if meta.get("cipher", "").startswith("chacha") else "AES"
+        cipher = "ChaCha20" if str(meta.get("cipher", "")).startswith("chacha") else "AES"
         aead = _aead(key, cipher)
         out_dir = outdir or os.path.dirname(os.path.abspath(path))
         # the header is not authenticated, so the name in it is only ever a
@@ -309,7 +384,10 @@ tool(id="aes-folder", name="Encrypt a folder", category=CAT,
               "first, then that zip is encrypted as one file. That means the file names inside "
               "are hidden too, which per-file encryption would not do.\n\n"
               "Decrypting gives you the zip back; unzip it wherever you want it."),
-     security=SEC_NOTE,
+     security=SEC_NOTE + " While it works, the folder is zipped unencrypted to your temp "
+                         "folder; that zip is deleted afterwards, but deleted is not shredded, "
+                         "so on a shared machine or an unencrypted disk a copy may be "
+                         "recoverable.",
      tags=["folder", "directory", "zip", "archive", "backup"],
      input_kind="folder", input_label="Folder",
      params=[Param("password", "Password", "password", ""),
@@ -433,15 +511,19 @@ WORDS = ("able about above acid across act add afraid after again against age ag
          "window wine wing winter wire wise wish woman wonder wood wool word work world worry "
          "worth wound wrap write wrong yard year yellow yes yesterday yet young").split()
 
+B64URL = string.ascii_letters + string.digits + "-_"
+
 tool(id="password-gen", name="Password & passphrase generator", category=CAT,
      summary="Cryptographically random passwords, with the strength worked out",
      explain=("Uses the operating system's secure random source, not Python's ordinary one. "
               "The strength figure is entropy in bits — how many guesses an attacker needs, "
               "expressed as a power of two — and it assumes they know exactly which scheme you "
               "used, which is the right assumption.\n\n"
-              "A four-word passphrase from this list is about 39 bits; five words about 49; "
-              "six words about 59 and comfortably beyond offline cracking. Length beats "
-              "punctuation every time."),
+              f"The word list has {len(WORDS):,} words, so each word adds about "
+              f"{math.log2(len(WORDS)):.1f} bits: four words is about "
+              f"{4 * math.log2(len(WORDS)):.0f} bits, five about {5 * math.log2(len(WORDS)):.0f}, "
+              f"six about {6 * math.log2(len(WORDS)):.0f} and comfortably beyond offline "
+              "cracking. Length beats punctuation every time."),
      tags=["password", "passphrase", "diceware", "random", "entropy"],
      params=[Param("style", "Style", "choice", "passphrase",
                    choices=["passphrase", "random characters", "PIN", "hex", "base64"]),
@@ -470,10 +552,12 @@ def _genpw(style, length, count, sep, symbols, ambiguous):
             out.append("".join(secrets.choice(string.digits) for _ in range(length)))
             bits = length * math.log2(10)
         elif style == "hex":
-            out.append(secrets.token_hex(max(1, length // 2)))
-            bits = (max(1, length // 2)) * 8
+            # exactly `length` characters, odd lengths included; 4 bits each
+            out.append(secrets.token_hex((length + 1) // 2)[:length])
+            bits = length * 4
         elif style == "base64":
-            out.append(secrets.token_urlsafe(length))
+            # exactly `length` characters of the URL-safe Base64 alphabet, 6 bits each
+            out.append("".join(secrets.choice(B64URL) for _ in range(length)))
             bits = length * 6
         else:
             pool = string.ascii_letters + string.digits
@@ -622,7 +706,8 @@ def _pw_strength(data, **_k):
         reasons.append("it is short - length matters more than anything else.")
 
     # crack time at 1e10 guesses/sec (a serious offline attack on a fast hash)
-    guesses = 2 ** entropy / 2
+    # (capped: past ~1000 bits a float overflows, and it is "forever" long before)
+    guesses = 2 ** min(entropy, 1000) / 2
     secs = guesses / 1e10
     if secs < 1:
         when = "instantly"
@@ -681,5 +766,5 @@ tool(id="password-strength", name="Password strength", category=CAT,
          "word-based passphrases."),
      example="Try 'correct horse battery staple' against 'P@ssw0rd'.",
      tags=["password", "strength", "entropy", "zxcvbn", "crack time", "audit"],
-     params=[Param("data", "Password", "password", "", width=28)],
+     input_label="Password to check",
      action=lambda data="", **k: _pw_strength(data), action_label="Check", input_kind="text")

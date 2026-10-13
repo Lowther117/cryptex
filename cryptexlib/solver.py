@@ -33,6 +33,9 @@ from .language import (describe, index_of_coincidence, readability,
                        structure_hint)
 
 MAX_BYTES = 200_000
+# Nothing bigger than this is kept as a step, whatever produced it - the same
+# figure decompression stops at (encodings.SOLVER_LIMIT)
+SOLVER_LIMIT = 1024 * 1024
 
 
 # --------------------------------------------------------------------------
@@ -390,7 +393,7 @@ def _t_decompress(text, raw):
         return []
     if sniff_compression(raw) is None and raw[:1] not in (b"\x78",):
         return []
-    out, used = decompress_bytes(raw)
+    out, used = decompress_bytes(raw)        # None past SOLVER_LIMIT: a message, not a bomb
     return [(f"Decompress ({used})", out)] if out else []
 
 
@@ -733,7 +736,9 @@ def solve(data, max_depth=4, seconds=12.0, thorough=False, want=8, min_score=0.3
             except Exception:
                 continue
             for label, out in produced or []:
-                if out is None:
+                if time.time() > deadline:
+                    break
+                if out is None or len(out) > SOLVER_LIMIT:
                     continue
                 out = _normalise(out)
                 if not _as_text(out).strip():

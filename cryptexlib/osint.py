@@ -9,7 +9,7 @@ of tool and deliberately not here.
 """
 from __future__ import annotations
 
-from .core import Param, Result, ToolError, clamp, need, to_text, tool
+from .core import Result, ToolError, clamp, need, to_text, tool
 
 CAT = "Forensics & OSINT"
 
@@ -95,23 +95,26 @@ def _timestamps(data, **_k):
         if good:
             plausible.append((label, stamp))
 
-    def safe(seconds_from_epoch):
+    def safe(per_second=1, offset=0):
+        # the division happens in here too: a huge number overflows a float
+        # before it ever reaches timedelta
         try:
-            return epoch + dt.timedelta(seconds=seconds_from_epoch)
+            seconds = n + offset if per_second == 1 else n / per_second + offset
+            return epoch + dt.timedelta(seconds=seconds)
         except (OverflowError, OSError, ValueError):
             return None
 
-    add("Unix seconds", safe(n))
-    add("Unix milliseconds", safe(n / 1_000))
-    add("Unix microseconds", safe(n / 1_000_000))
-    add("Unix nanoseconds", safe(n / 1_000_000_000))
+    add("Unix seconds", safe())
+    add("Unix milliseconds", safe(1_000))
+    add("Unix microseconds", safe(1_000_000))
+    add("Unix nanoseconds", safe(1_000_000_000))
     # Windows FILETIME: 100-ns ticks since 1601-01-01
-    add("Windows FILETIME", safe(n / 10_000_000 - 11_644_473_600),
+    add("Windows FILETIME", safe(10_000_000, -11_644_473_600),
         "100-ns ticks since 1601")
     # Mac / Cocoa absolute time: seconds since 2001-01-01
-    add("Apple / Cocoa (2001)", safe(n + 978_307_200), "seconds since 2001")
+    add("Apple / Cocoa (2001)", safe(1, 978_307_200), "seconds since 2001")
     # Chrome/WebKit: microseconds since 1601
-    add("WebKit / Chrome", safe(n / 1_000_000 - 11_644_473_600),
+    add("WebKit / Chrome", safe(1_000_000, -11_644_473_600),
         "microseconds since 1601")
 
     note = ("A tick ✓ marks the readings that land in a sensible date range (1995-2040) - "
@@ -386,7 +389,7 @@ tool(id="email-headers", name="Email header analyser", category=CAT,
          "Paste everything above the message body. It all stays on your machine."),
      example="Paste the full headers from 'View source' / 'Show original'.",
      tags=["email", "headers", "received", "spf", "dkim", "spoof", "phishing", "forensics"],
-     params=[Param("data", "Raw headers", "multiline", "", width=50)],
+     input_label="Raw headers",
      action=lambda data="", **k: _email_headers(data), action_label="Analyse",
      input_kind="text")
 

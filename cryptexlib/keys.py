@@ -162,12 +162,11 @@ def _rsa(data, key, padding, passphrase, dec):
     p = _rsa_padding(padding)
     if dec:
         k = _load_private(key, passphrase or None)
-        raw = to_bytes(data)
-        if not raw.startswith(b"\x00") or True:
-            try:
-                raw = b64_any(to_text(data))
-            except ToolError:
-                raw = to_bytes(data)
+        # ciphertext is normally pasted as Base64; anything else is taken as raw bytes
+        try:
+            raw = b64_any(to_text(data))
+        except ToolError:
+            raw = to_bytes(data)
         try:
             out = k.decrypt(raw, p)
         except Exception as exc:

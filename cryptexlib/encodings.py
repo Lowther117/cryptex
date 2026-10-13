@@ -472,13 +472,33 @@ NATO = {"A": "Alfa", "B": "Bravo", "C": "Charlie", "D": "Delta", "E": "Echo",
         "Z": "Zulu", "0": "Zero", "1": "One", "2": "Two", "3": "Three",
         "4": "Four", "5": "Five", "6": "Six", "7": "Seven", "8": "Eight", "9": "Nine"}
 NATO_REV = {v.upper(): k for k, v in NATO.items()}
+# the spellings people actually use alongside the official ones (X-ray is
+# matched without its hyphen)
+NATO_REV.update({"ALPHA": "A", "JULIET": "J", "NINER": "9"})
+# what people write for a gap between words when spelling out a phrase
+NATO_GAPS = {"/", "|", "SPACE", "(SPACE)", "[SPACE]", "<SPACE>"}
+
+
+def _nato_dec(text):
+    out = []
+    for tok in text.split():
+        if tok.upper() in NATO_GAPS:
+            out.append(" ")
+            continue
+        lead, core, trail = re.fullmatch(r"(\W*)(.*?)(\W*)", tok).groups()
+        if not core:                       # punctuation on its own passes through
+            out.append(tok)
+            continue
+        out.append(lead + NATO_REV.get(core.upper().replace("-", ""), "?") + trail)
+    return re.sub(r" {2,}", " ", "".join(out)).strip()
+
 
 tool(id="nato", name="NATO phonetic alphabet", category=CAT,
      summary="Alfa Bravo Charlie — for reading a code down the phone",
      explain="Practical rather than cryptographic: use it to dictate a key, a reference or a password without being misheard.",
      tags=["phonetic", "spelling", "radio"],
      encode=lambda d, **k: " ".join(NATO.get(c.upper(), c) for c in to_text(d) if not c.isspace()),
-     decode=lambda d, **k: "".join(NATO_REV.get(w.upper(), "?") for w in to_text(d).split()))
+     decode=lambda d, **k: _nato_dec(to_text(d)))
 
 BACON = {c: format(i, "05b").replace("0", "A").replace("1", "B")
          for i, c in enumerate(ALPHA)}
@@ -868,10 +888,71 @@ def sniff_compression(raw: bytes):
     return None
 
 
-def decompress_bytes(raw: bytes, algo="auto-detect"):
-    """Returns (decompressed bytes, the format that worked)."""
+# Compressed data can expand a thousandfold - a few hundred characters of
+# Base64 can hold 400 MB of zeros - so nothing is ever inflated in one go.
+# The tool stops at TOOL_LIMIT and says so; the auto-solver, which only wants
+# messages, gives up on anything past SOLVER_LIMIT.
+TOOL_LIMIT = 64 * 1024 * 1024
+SOLVER_LIMIT = 1024 * 1024
+
+
+def _inflate_capped(raw, wbits, limit, multi=False):
+    """zlib/gzip/raw deflate, never producing more than limit bytes.
+    Returns (bytes, truncated). Raises on data that is not this format."""
+    import zlib
+    out = bytearray()
+    data = raw
+    while True:
+        d = zlib.decompressobj(wbits)
+        chunk = d.decompress(data, limit + 1 - len(out))
+        out += chunk
+        while not d.eof and len(out) <= limit and (chunk or d.unconsumed_tail):
+            chunk = d.decompress(d.unconsumed_tail, limit + 1 - len(out))
+            out += chunk
+        if len(out) > limit:
+            return bytes(out[:limit]), True
+        if not d.eof:
+            raise ValueError("compressed data ended before the end-of-stream marker")
+        if not multi:
+            return bytes(out), False
+        # gzip files may hold several members back to back, and zero padding;
+        # anything else after them is rejected, as gzip.decompress does
+        data = d.unused_data.lstrip(b"\x00")
+        if not data:
+            return bytes(out), False
+        if data[:2] != b"\x1f\x8b":
+            raise ValueError("not a gzip member")
+
+
+def _stream_capped(make, raw, limit):
+    """bzip2/xz, never producing more than limit bytes. Returns (bytes, truncated)."""
+    out = bytearray()
+    data = raw
+    members = 0
+    while data:
+        d = make()
+        try:
+            out += d.decompress(data, limit + 1 - len(out))
+        except Exception:
+            if members:          # trailing junk after a good stream is ignored,
+                break            # as bz2.decompress / lzma.decompress do
+            raise
+        while not d.eof and len(out) <= limit and not d.needs_input:
+            out += d.decompress(b"", limit + 1 - len(out))
+        if len(out) > limit:
+            return bytes(out[:limit]), True
+        if not d.eof:
+            raise ValueError("compressed data ended before the end-of-stream marker")
+        members += 1
+        data = d.unused_data
+    if not members:
+        raise ValueError("no compressed data")
+    return bytes(out), False
+
+
+def decompress_capped(raw: bytes, algo="auto-detect", limit=TOOL_LIMIT):
+    """Returns (decompressed bytes, the format that worked, truncated)."""
     import bz2
-    import gzip
     import lzma
     import zlib
     order = [algo] if algo != "auto-detect" else []
@@ -885,18 +966,32 @@ def decompress_bytes(raw: bytes, algo="auto-detect"):
         seen.append(name)
         try:
             if name == "gzip":
-                return gzip.decompress(raw), name
-            if name == "zlib":
-                return zlib.decompress(raw), name
-            if name == "raw deflate":
-                return zlib.decompress(raw, -zlib.MAX_WBITS), name
-            if name == "bzip2":
-                return bz2.decompress(raw), name
-            if name == "lzma / xz":
-                return lzma.decompress(raw), name
+                if raw[:2] != b"\x1f\x8b":
+                    continue
+                out, cut = _inflate_capped(raw, 16 + zlib.MAX_WBITS, limit, multi=True)
+            elif name == "zlib":
+                out, cut = _inflate_capped(raw, zlib.MAX_WBITS, limit)
+            elif name == "raw deflate":
+                out, cut = _inflate_capped(raw, -zlib.MAX_WBITS, limit)
+            elif name == "bzip2":
+                out, cut = _stream_capped(bz2.BZ2Decompressor, raw, limit)
+            elif name == "lzma / xz":
+                out, cut = _stream_capped(lzma.LZMADecompressor, raw, limit)
+            else:
+                continue
+            return out, name, cut
         except Exception:
             continue
-    return None, None
+    return None, None, False
+
+
+def decompress_bytes(raw: bytes, algo="auto-detect", limit=SOLVER_LIMIT):
+    """Returns (decompressed bytes, the format that worked) - or (None, None)
+    if it is not compressed data, or would expand past limit."""
+    out, used, cut = decompress_capped(raw, algo, limit)
+    if out is None or cut:
+        return None, None
+    return out, used
 
 
 def _decompress(data, algo):
@@ -914,25 +1009,35 @@ def _decompress(data, algo):
                 candidate = decode_as(data, guess)[0]
             except ToolError:
                 continue
-            out, used = decompress_bytes(candidate, algo)
+            out, used, cut = decompress_capped(candidate, algo)
             if out is not None:
-                return _decompressed_result(out, used, f"{guess} then ")
-    out, used = decompress_bytes(raw, algo)
+                return _decompressed_result(out, used, f"{guess} then ", cut)
+    out, used, cut = decompress_capped(raw, algo)
     if out is None:
         raise ToolError("That is not compressed data Cryptex recognises "
                         "(gzip, zlib, raw deflate, bzip2 or xz). If it is Base64 or hex of "
                         "compressed data, decode that layer first - or use Auto-solve, "
                         "which peels layers for you.")
-    return _decompressed_result(out, used, "")
+    return _decompressed_result(out, used, "", cut)
 
 
-def _decompressed_result(out, used, prefix):
+def _decompressed_result(out, used, prefix, cut=False):
+    warn = (f"Truncated: this expands to more than {TOOL_LIMIT // (1024 * 1024)} MB, so only "
+            "the first part is shown and saved. Something that inflates this much is "
+            "usually a deliberate 'compression bomb'.") if cut else ""
     try:
         text = out.decode("utf-8")
-        return Result(text=text, data=out,
+        return Result(text=text, data=out, warn=warn,
                       note=f"{prefix}{used}: expanded to {len(out):,} bytes.")
     except UnicodeDecodeError:
-        return Result(text=pretty_hex(out), data=out,
+        for drop in ((1, 2, 3) if cut else ()):   # the cut can land mid-character
+            try:
+                text = out[:-drop].decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            return Result(text=text, data=out, warn=warn,
+                          note=f"{prefix}{used}: expanded to {len(out):,} bytes.")
+        return Result(text=pretty_hex(out), data=out, warn=warn,
                       note=f"{prefix}{used}: expanded to {len(out):,} bytes of binary data.")
 
 
