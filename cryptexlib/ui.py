@@ -73,8 +73,9 @@ class App(ttk.Frame):
         super().__init__(root)
         self.root = root
         self.settings = self._load_settings()
-        self.dark = bool(self.settings.get("dark", True))   # dark by default
-        self.c = theme.apply(root, self.dark)
+        self.theme_name = theme.from_settings(self.settings)   # phosphor purple by default
+        self.dark = theme.is_dark(self.theme_name)
+        self.c = theme.apply(root, self.theme_name)
         self.mono = theme.mono_family(root)
         self.ui = theme.ui_family(root)
         self.tool: Tool | None = None
@@ -130,7 +131,7 @@ class App(ttk.Frame):
                 self.settings["sash"] = self.pane.sashpos(0)
             except Exception:
                 pass
-            self.settings.update(dark=self.dark, geometry=self.root.geometry(),
+            self.settings.update(theme=self.theme_name, dark=self.dark, geometry=self.root.geometry(),
                                  last_tool=self.tool.id if self.tool else "identify",
                                  explain_open=bool(self.explain_open.get()))
             with open(SETTINGS, "w", encoding="utf-8") as fh:
@@ -165,7 +166,7 @@ class App(ttk.Frame):
         e.add_command(label="Clear", command=self.clear)
         m.add_cascade(label="Edit", menu=e)
         v = tk.Menu(m, tearoff=0)
-        v.add_command(label="Switch light / dark", accelerator="Ctrl+D", command=self.toggle_theme)
+        v.add_command(label="Next theme (Phosphor / Dark / Light)", accelerator="Ctrl+D", command=self.toggle_theme)
         v.add_checkbutton(label="Show the explanation panel", variable=self.explain_open,
                           command=self._render_explain)
         v.add_command(label="Find a tool", accelerator="Ctrl+F",
@@ -193,8 +194,8 @@ class App(ttk.Frame):
         top.pack(fill="x")
         ttk.Label(top, text="Cryptex", style="Title.TLabel").pack(side="left")
         ttk.Label(top, text="  encoder / decoder toolbox", style="Sub.TLabel").pack(side="left")
-        self.theme_btn = ttk.Button(top, text="Dark" if not self.dark else "Light",
-                                    width=7, command=self.toggle_theme)
+        self.theme_btn = ttk.Button(top, text=theme.short_label(theme.next_theme(self.theme_name)),
+                                    width=9, command=self.toggle_theme)
         self.theme_btn.pack(side="right")
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *a: self._populate())
@@ -1220,9 +1221,10 @@ class App(ttk.Frame):
                 var.set(default_save_dir())
 
     def toggle_theme(self):
-        self.dark = not self.dark
-        self.c = theme.apply(self.root, self.dark)
-        self.theme_btn.configure(text="Light" if self.dark else "Dark")
+        self.theme_name = theme.next_theme(self.theme_name)
+        self.dark = theme.is_dark(self.theme_name)
+        self.c = theme.apply(self.root, self.theme_name)
+        self.theme_btn.configure(text=theme.short_label(theme.next_theme(self.theme_name)))
         self._recolour()
         if self.tool:
             self._render_tool()

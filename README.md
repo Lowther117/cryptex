@@ -818,8 +818,9 @@ use it, a worked example, and an amber caution line where one is warranted
 (*"Historical cipher — trivially broken. Never use it to protect anything
 real."*). Fold the panel away from **View** once you no longer need it.
 
-**Dark by default**, with light a keystroke away (Ctrl+D, or the button top
-right). In both themes anything you can type in or click sits on a different
+**Phosphor purple by default** (the same look as Winnow), with the original
+dark and a light theme a keystroke away: Ctrl+D, or the button top right,
+cycles Phosphor → Dark → Light. In every theme anything you can type in or click sits on a different
 shade from the surface behind it, carries a real border, and gets an accent
 ring when it has focus — so an input never has to be hunted for.
 
@@ -838,7 +839,7 @@ ring when it has focus — so an input never has to be hunted for.
 - **Every tool explains itself.** The "How this works" panel is the point of the
   app as much as the tools are. Turn it off in View when you no longer need it.
 - **F5** runs the current tool's main action (Start / Stop on the live
-  listener). **Ctrl+D** switches dark and light. **Ctrl+Enter** sends the output
+  listener). **Ctrl+D** cycles Phosphor, Dark and Light. **Ctrl+Enter** sends the output
   back to the input.
 - **Everything saves to Downloads** - saved output, encrypted files, pictures,
   WAVs - unless you choose another folder under **File > Default save folder…**
@@ -861,7 +862,7 @@ requirements.txt      cryptography, pillow, numpy, argon2-cffi,
 cryptexlib/
   core.py             the Tool/Param/Result registry everything else plugs into
   ui.py               the window - built entirely from the registry
-  theme.py            light and dark palettes
+  theme.py            phosphor, dark and light palettes (shared house theme)
   registry.py         imports every tool module (the only wiring there is)
   identify.py         "what is this?"
   encodings.py        Base-N, web encodings, Morse, Braille, Baudot, Bacon, tap
