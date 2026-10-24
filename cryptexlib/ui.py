@@ -96,6 +96,7 @@ class App(ttk.Frame):
         self.guide_win = None
         self.guide_txt = None
         self._wheel_rem = ("", 0.0)     # (widget path, fractional scroll carried over)
+        self._walk_gen = 0              # bumped to abandon an older folder count
 
         root.title(f"{APP} — encoder / decoder toolbox")
         root.geometry(self.settings.get("geometry") or self._default_geometry(root))
@@ -136,8 +137,10 @@ class App(ttk.Frame):
             self.settings.update(theme=self.theme_name, dark=self.dark, geometry=self.root.geometry(),
                                  last_tool=self.tool.id if self.tool else "identify",
                                  explain_open=bool(self.explain_open.get()))
-            with open(SETTINGS, "w", encoding="utf-8") as fh:
+            tmp = SETTINGS + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump(self.settings, fh, indent=1)
+            os.replace(tmp, SETTINGS)
         except Exception:
             pass
 
@@ -844,6 +847,7 @@ class App(ttk.Frame):
         find out by pressing the button."""
         if not self.tool or self.tool.input_kind not in ("file", "folder"):
             return
+        self._walk_gen += 1
         path = self.file_var.get().strip()
         if not path:
             self.file_info.configure(text="No file chosen yet.")
@@ -852,11 +856,22 @@ class App(ttk.Frame):
             self.file_info.configure(text="That path does not exist.")
             return
         if os.path.isdir(path):
-            try:
-                n = sum(len(f) for _r, _d, f in os.walk(path))
-                self.file_info.configure(text=f"Folder - {n} file(s) inside.")
-            except OSError:
-                self.file_info.configure(text="Folder.")
+            # Counting a big tree can take minutes, so it happens off the UI
+            # thread. A newer path abandons it, and _pump drops a stale answer.
+            self.file_info.configure(text="Folder.")
+            gen = self._walk_gen
+
+            def count(p=path, g=gen):
+                n = 0
+                try:
+                    for _r, _d, f in os.walk(p):
+                        if self._walk_gen != g:
+                            return
+                        n += len(f)
+                except OSError:
+                    return
+                self.q.put(("fileinfo", p, f"Folder - {n} file(s) inside."))
+            threading.Thread(target=count, daemon=True).start()
             return
         size = os.path.getsize(path)
         bits = [f"{size:,} bytes"]

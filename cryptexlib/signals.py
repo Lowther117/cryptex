@@ -7,6 +7,7 @@ picture back.
 """
 from __future__ import annotations
 
+import functools
 import math
 import os
 import struct
@@ -310,6 +311,20 @@ def find_vis(freq, rate):
 # Decoder
 # --------------------------------------------------------------------------
 
+def _run_count(mask, win):
+    """How many of the `win` samples around each one are set - exactly
+    np.convolve(mask, ones(win), "same"), but a running sum rather than
+    `win` multiply-adds per sample."""
+    np = _np()
+    n = mask.size
+    if n < win:
+        return np.convolve(mask.astype(np.float32), np.ones(win, dtype=np.float32), mode="same")
+    h = (win - 1) // 2
+    c = np.cumsum(mask, dtype=np.int32)
+    t = np.concatenate((np.zeros(win - h, dtype=np.int32), c, np.full(h, c[-1], dtype=np.int32)))
+    return (t[win:win + n] - t[:n]).astype(np.float32)
+
+
 def _find_syncs(freq, rate, mode, start, count):
     """Locate each line's sync pulse, then straighten the picture.
 
@@ -320,16 +335,13 @@ def _find_syncs(freq, rate, mode, start, count):
     np = _np()
     sync_len = next((s[1] for s in mode.layout if s[0] == "sync"), 9.0)
     win = max(4, int(rate * sync_len / 1000.0))
-    is_sync = (freq < 1350.0).astype(np.float32)
-    energy = np.convolve(is_sync, np.ones(win, dtype=np.float32), mode="same")
+    energy = _run_count(freq < 1350.0, win)
     line_samples = mode.line_ms * rate / 1000.0
     # where to LOOK for line i's pulse (Scottie sends one extra pulse up front)
     search_off = (mode.start_sync + mode.sync_offset()) * rate / 1000.0
     # how far the pulse sits INTO its own line, which is what turns a measured
     # pulse position back into the start of that line
     line_off = mode.sync_offset() * rate / 1000.0
-    is_sync = (freq < 1350.0).astype(np.float32)
-    energy = np.convolve(is_sync, np.ones(win, dtype=np.float32), mode="same")
 
     def sweep(origin0, step0):
         tol = int(step0 * 0.08)
@@ -703,8 +715,18 @@ def goertzel(block, rate, freq):
     np = _np()
     n = len(block)
     k = int(0.5 + n * freq / rate)
-    osc = np.exp(-2j * np.pi * k * np.arange(n) / n)
+    osc = _goertzel_osc(n, k)
     return float(abs(np.dot(osc, np.asarray(block, dtype=np.float64))) ** 2)
+
+
+@functools.lru_cache(maxsize=64)
+def _goertzel_osc(n, k):
+    """The bin's complex oscillator - the same for every block of a file, so
+    it is built once rather than eight times per block."""
+    np = _np()
+    osc = np.exp(-2j * np.pi * k * np.arange(n) / n)
+    osc.flags.writeable = False
+    return osc
 
 
 tool(id="dtmf", name="DTMF (touch-tone) decoder", category=CAT,
@@ -833,7 +855,11 @@ def _spectrogram(path, nfft, maxhz, height, colour, outdir=""):
     samples, rate = load_audio(path)
     hop = nfft // 4
     frames = max(1, (len(samples) - nfft) // hop)
-    frames = min(frames, 4000)
+    if frames > 4000:
+        # spread the 4000 columns across the whole recording, rather than
+        # drawing only its first 4000 hops and calling that the spectrogram
+        hop = (len(samples) - nfft) // 4000
+        frames = 4000
     window = np.hanning(nfft).astype(np.float32)
     cols = []
     for i in range(frames):

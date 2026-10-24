@@ -88,6 +88,9 @@ def _unwrap(raw: bytes, password) -> bytes:
     if not raw.startswith(MAGIC):
         raise ToolError("No hidden message found here. Either there is nothing "
                         "hidden, or it was hidden by something other than Cryptex.")
+    if len(raw) < 9:
+        raise ToolError("The hidden message is cut short - the file has been "
+                        "re-saved, cropped or recompressed since it was hidden.")
     flags = raw[4]
     n = struct.unpack_from("<I", raw, 5)[0]
     body = raw[9:9 + n]
@@ -128,7 +131,8 @@ def _load_rgb(path):
         img.load()
     except Exception as exc:
         raise ToolError(f"Could not read that image: {exc}")
-    keep_alpha = img.mode in ("RGBA", "LA", "PA")
+    # a palette or colour-keyed image keeps its transparency in img.info
+    keep_alpha = img.mode in ("RGBA", "LA", "PA") or "transparency" in img.info
     alpha = img.convert("RGBA").getchannel("A") if keep_alpha else None
     arr = np.array(img.convert("RGB"), dtype=np.uint8)
     return arr, alpha, img
@@ -508,6 +512,12 @@ def _carve(path, extract=False, outdir="", minimum=64):
         rows.append(("Appended data", "none - the file ends where it says it does"))
 
     for magic, name, ext, _e in SIGNATURES:
+        if len(magic) < 4:
+            # short markers are only trusted at the very start (see below), so
+            # there is no point walking every chance match in a large file
+            if raw.startswith(magic):
+                rows.append(("This file is", name))
+            continue
         start = 0
         while True:
             at = raw.find(magic, start)
@@ -623,11 +633,18 @@ def _exif(path, strip=False, outdir=""):
         base = os.path.splitext(os.path.basename(path))[0]
         ext = ".png" if img.format == "PNG" else ".jpg"
         dest = os.path.join(folder, f"{base} [clean]{ext}")
-        clean = Image.new(img.mode, img.size)
-        clean.putdata(list(img.getdata()))
+        # raw pixels only, no info/EXIF; a palette image needs its palette back
+        clean = Image.frombytes(img.mode, img.size, img.tobytes())
+        if img.mode in ("P", "PA"):
+            clean.putpalette(img.getpalette())
         if ext == ".jpg" and clean.mode not in ("RGB", "L"):
             clean = clean.convert("RGB")       # JPEG cannot carry alpha or a palette
-        clean.save(dest, quality=95) if ext == ".jpg" else clean.save(dest)
+        if ext == ".jpg":
+            clean.save(dest, quality=95)
+        elif "transparency" in img.info:      # part of the picture, not metadata
+            clean.save(dest, transparency=img.info["transparency"])
+        else:
+            clean.save(dest)
         rows.append(("Clean copy", dest))
         return Result(rows=rows, headers=["Field", "Value"], file_path=dest,
                       note=f"A copy with no metadata at all written to {dest}.",
@@ -837,6 +854,7 @@ def _ws_extract(data, password="", **_k):
     text = to_text(data)
     bits = ""
     for line in text.split("\n"):
+        line = line.rstrip("\r")           # a file saved with Windows line endings
         stripped = line.rstrip(" \t")
         trail = line[len(stripped):]
         for ch in trail:

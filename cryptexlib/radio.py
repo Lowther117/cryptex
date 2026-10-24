@@ -29,6 +29,16 @@ from .signals import MEDIA_TYPES, _np, load_audio
 CAT = "Signals"
 
 
+def _fclamp(value, low, high, default):
+    """clamp() for settings that are not whole numbers. core.clamp goes
+    through int(), which would turn 45.45 baud into 45 and 31.25 into 31."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        n = float(default)
+    return max(low, min(high, n))
+
+
 def _write_wav(path, samples, rate):
     np = _np()
     data = np.clip(np.asarray(samples), -1.0, 1.0)
@@ -107,8 +117,8 @@ def _rtty_decode(path, baud=45.45, shift=170.0, centre=0.0, reverse=False,
     np = _np()
     from .encodings import BAUDOT_F, BAUDOT_L
     samples, rate = load_audio(path)
-    baud = float(clamp(baud, 10.0, 1200.0, 45.45))
-    shift = float(clamp(shift, 20.0, 2000.0, 170.0))
+    baud = _fclamp(baud, 10.0, 1200.0, 45.45)
+    shift = _fclamp(shift, 20.0, 2000.0, 170.0)
     if centre <= 0:
         centre = _find_centre(samples, rate, shift)
     mark, space = centre + shift / 2.0, centre - shift / 2.0
@@ -227,12 +237,12 @@ def _rtty_encode(data, baud=45.45, shift=170.0, centre=2210.0, rate=11025,
             codes.append(BAUDOT_F.index(c))
         if c == " ":
             figs = False
-    baud = float(clamp(baud, 10.0, 1200.0, 45.45))
-    shift = float(clamp(shift, 20.0, 2000.0, 170.0))
+    baud = _fclamp(baud, 10.0, 1200.0, 45.45)
+    shift = _fclamp(shift, 20.0, 2000.0, 170.0)
     rate = int(clamp(rate, 8000, 48000, 11025))
     mark, space = centre + shift / 2.0, centre - shift / 2.0
 
-    symbols = [mark] * int(baud * float(clamp(lead_in, 0.0, 10.0, 1.0)))
+    symbols = [mark] * int(baud * _fclamp(lead_in, 0.0, 10.0, 1.0))
     for code in codes:
         symbols.append(space)                       # start
         for b in range(5):
@@ -375,7 +385,7 @@ def _psk_carrier(samples, rate):
 def _psk_decode(path, carrier=0.0, baud=31.25, **_k):
     np = _np()
     samples, rate = load_audio(path)
-    baud = float(clamp(baud, 5.0, 500.0, 31.25))
+    baud = _fclamp(baud, 5.0, 500.0, 31.25)
     if carrier <= 0:
         carrier = _psk_carrier(samples, rate)
     spb = rate / baud
@@ -475,12 +485,12 @@ def _psk_encode(data, carrier=1000.0, baud=31.25, rate=11025, lead_in=1.0, outdi
     text = to_text(data)
     if not text.strip():
         raise ToolError("Type something to send.")
-    baud = float(clamp(baud, 5.0, 500.0, 31.25))
+    baud = _fclamp(baud, 5.0, 500.0, 31.25)
     rate = int(clamp(rate, 8000, 48000, 11025))
-    carrier = float(clamp(carrier, 100.0, 4000.0, 1000.0))
+    carrier = _fclamp(carrier, 100.0, 4000.0, 1000.0)
 
     bits = []
-    bits += [0] * int(baud * float(clamp(lead_in, 0.0, 10.0, 1.0)))   # idle: reversals
+    bits += [0] * int(baud * _fclamp(lead_in, 0.0, 10.0, 1.0))   # idle: reversals
     for ch in text:
         code = VARICODE[ord(ch)] if ord(ch) < len(VARICODE) else VARICODE[ord("?")]
         bits += [1 if c == "1" else 0 for c in code]
@@ -674,7 +684,7 @@ def _aprs_meaning(info: str) -> str:
 def _aprs_decode(path, mark=1200.0, space=2200.0, baud=1200.0):
     np = _np()
     samples, rate = load_audio(path)
-    baud = float(clamp(baud, 100.0, 9600.0, 1200.0))
+    baud = _fclamp(baud, 100.0, 9600.0, 1200.0)
     track, _win = _tone_track(samples, rate, float(mark), float(space), baud)
 
     rows, seen = [], []

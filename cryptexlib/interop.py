@@ -290,8 +290,11 @@ def _age_decrypt(data, identity="", passphrase="", **_k):
     while i < len(stanzas):
         line = stanzas[i]
         if line.startswith("-> X25519 ") and identity:
-            eph_pub = _unb64(line[len("-> X25519 "):])
-            wrapped = _unb64(stanzas[i + 1])
+            try:
+                eph_pub = _unb64(line[len("-> X25519 "):])
+                wrapped = _unb64(stanzas[i + 1])
+            except (IndexError, ValueError):
+                raise ToolError(AGE_BAD_HEADER) from None
             try:
                 priv = _age_pub_from_secret(identity)
                 from cryptography.hazmat.primitives import serialization
@@ -428,13 +431,14 @@ def _sniff_and_load(blob: bytes):
                 return label, loader(text)
             except Exception:
                 continue
-        # OpenSSH public
+        raise ToolError("That is a PEM block, but not a key, certificate or CSR Cryptex "
+                        "can read - or it needs a passphrase this tool was not given.")
+    # OpenSSH public - one line starting with the key type, never with "-"
+    if text[:4] in (b"ssh-", b"ecds", b"sk-s", b"sk-e"):
         try:
             return "public", serialization.load_ssh_public_key(text)
         except Exception:
             pass
-        raise ToolError("That is a PEM block, but not a key, certificate or CSR Cryptex "
-                        "can read - or it needs a passphrase this tool was not given.")
     # DER
     for label, loader in (
         ("private", lambda b: serialization.load_der_private_key(b, None)),
