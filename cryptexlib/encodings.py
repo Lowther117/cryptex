@@ -1131,6 +1131,8 @@ def _z85_dec(text: str) -> bytes:
             if ch not in _Z85:
                 raise ToolError(f"'{ch}' is not a Z85 character.")
             n = n * 85 + _Z85.index(ch)
+        if n > 0xFFFFFFFF:
+            raise ToolError("Not valid Z85 (a group is out of range).")
         out += n.to_bytes(4, "big")
     return bytes(out)
 

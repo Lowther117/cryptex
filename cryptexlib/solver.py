@@ -707,6 +707,7 @@ def solve(data, max_depth=4, seconds=12.0, thorough=False, want=8, min_score=0.3
 
     active = [t for t in TRANSFORMS
               if thorough or t.tname not in ("Substitution",)]
+    ordered = sorted(active, key=lambda f: 0 if f.kind == "decode" else 1)
 
     # A result this good means the puzzle is solved; keep going only long
     # enough to finish the node in hand, rather than burning the time limit.
@@ -726,7 +727,7 @@ def solve(data, max_depth=4, seconds=12.0, thorough=False, want=8, min_score=0.3
             continue
         # Deterministic decoders first: they are cheap, and following an
         # encoding chain is almost always the right move before brute force.
-        for fn in sorted(active, key=lambda f: 0 if f.kind == "decode" else 1):
+        for fn in ordered:
             if time.time() > deadline:
                 break
             if fn.involution and node.steps and node.steps[-1].startswith(fn.tname):

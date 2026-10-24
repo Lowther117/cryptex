@@ -164,15 +164,21 @@ def to_pcm_wav(path: str, rate: int | None = None) -> tuple[str, bool]:
         cmd += ["-ar", str(int(rate))]
     cmd += ["-c:a", "pcm_s16le", out]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
-                             stdin=subprocess.DEVNULL, timeout=900, **_no_window())
-    except subprocess.TimeoutExpired as exc:
-        raise ToolError("ffmpeg took too long converting that file.") from exc
-    if res.returncode != 0 or not os.path.isfile(out):
-        raise ToolError("ffmpeg could not read that file:\n"
-                        + (res.stderr or "").strip()[-500:])
-    if os.path.getsize(out) < 1000:
-        raise ToolError("That file has no audio track that ffmpeg could extract.")
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                                 stdin=subprocess.DEVNULL, timeout=900, **_no_window())
+        except subprocess.TimeoutExpired as exc:
+            raise ToolError("ffmpeg took too long converting that file.") from exc
+        if res.returncode != 0 or not os.path.isfile(out):
+            raise ToolError("ffmpeg could not read that file:\n"
+                            + (res.stderr or "").strip()[-500:])
+        if os.path.getsize(out) < 1000:
+            raise ToolError("That file has no audio track that ffmpeg could extract.")
+    except BaseException:
+        # nobody else knows about this folder until it is returned, so a
+        # failed conversion would otherwise leave it in the temp folder for good
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise
     return out, True
 
 

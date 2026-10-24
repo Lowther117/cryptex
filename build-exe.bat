@@ -89,7 +89,17 @@ REM  No report means the built program never got as far as writing one - it
 REM  did not start, or crashed - so that is a failure, not a pass.
 if not exist "%~dp0dist\cryptex-selftest.txt" goto :noreport
 type "%~dp0dist\cryptex-selftest.txt"
-findstr /C:"PROBLEMS FOUND" "%~dp0dist\cryptex-selftest.txt" >nul && goto :noreport
+findstr /C:"PROBLEMS FOUND" "%~dp0dist\cryptex-selftest.txt" >nul && goto :selftestfail
+
+echo.
+echo ===============================================
+echo   DONE.  dist\Cryptex.exe is ready.
+echo ===============================================
+echo.
+pause
+exit /b 0
+
+:noreport
 echo.
 echo ===============================================
 echo   BUILT, BUT THE SELF-TEST WROTE NO REPORT.
@@ -99,16 +109,6 @@ echo ===============================================
 echo.
 pause
 exit /b 3
-
-:selftestfail
-
-echo.
-echo ===============================================
-echo   DONE.  dist\Cryptex.exe is ready.
-echo ===============================================
-echo.
-pause
-exit /b 0
 
 :selftestfail
 echo.

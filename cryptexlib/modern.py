@@ -601,10 +601,10 @@ def _rand(nbytes, fmt, count):
     from .core import clamp
     nbytes, count = clamp(nbytes, 1, 1_000_000, 32), clamp(count, 1, 1000, 1)
     import uuid
-    lines, blob = [], b""
+    lines, parts = [], []
     for _ in range(count):
         raw = secrets.token_bytes(nbytes)
-        blob += raw
+        parts.append(raw)
         if fmt == "hex":
             lines.append(raw.hex())
         elif fmt == "base64":
@@ -619,7 +619,7 @@ def _rand(nbytes, fmt, count):
             lines.append(repr(raw))
         else:
             lines.append(pretty_hex(raw))
-    return Result(text="\n".join(lines), data=blob,
+    return Result(text="\n".join(lines), data=b"".join(parts),
                   note=f"{nbytes} bytes = {nbytes*8} bits each, from the OS random source.")
 
 

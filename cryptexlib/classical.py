@@ -189,7 +189,7 @@ def _vig(text, key, variant, keep, dec):
         if variant == "Autokey":
             produced.append(y if dec else x)
             if ki + 1 >= len(ks):
-                ks = ks + produced
+                ks.extend(produced)
                 produced = []
         ki += 1
     return "".join(out)

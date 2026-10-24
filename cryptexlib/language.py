@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 
 ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -144,14 +145,21 @@ def byte_english_score(raw: bytes) -> float:
     return total / len(raw)
 
 
+# the same log-probabilities letter_loglik always used, worked out once per
+# pair rather than once per letter of every candidate the solvers score
+_LOG_BIGRAM = {a + b: math.log(BIGRAM_PCT.get(a + b, _REST) / 100.0)
+               for a in ALPHA for b in ALPHA}
+
+
 def letter_loglik(text: str) -> float:
     """Mean log-likelihood of the letters under an English bigram model."""
     letters = "".join(c for c in text.upper() if c in ALPHA)
     if len(letters) < 2:
         return -1e9
     total = 0.0
+    logs = _LOG_BIGRAM
     for i in range(len(letters) - 1):
-        total += math.log(BIGRAM_PCT.get(letters[i:i + 2], _REST) / 100.0)
+        total += logs[letters[i:i + 2]]
     return total / (len(letters) - 1)
 
 
@@ -161,10 +169,11 @@ def chi_english(letters: str) -> float:
     if not letters:
         return -1e9
     n = len(letters)
+    counts = Counter(letters)
     chi = 0.0
     for c in ALPHA:
         exp = ENGLISH_FREQ[c] * n / 100.0
-        chi += (letters.count(c) - exp) ** 2 / max(exp, 0.5)
+        chi += (counts[c] - exp) ** 2 / max(exp, 0.5)
     return -chi / n
 
 

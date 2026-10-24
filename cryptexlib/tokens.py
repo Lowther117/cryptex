@@ -581,8 +581,10 @@ def _verify_manifest(path, algo="auto", **_k):
         # is the only thing that tells them apart
         algo = next((a for a in ("BLAKE2B", "SHA512", "SHA256", "SHA1", "MD5") if a in name), "")
         if not algo:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                first = fh.readline().split()
             algo = {32: "md5", 40: "sha1", 64: "sha256", 128: "sha512"}.get(
-                len(open(path).readline().split()[0]), "")
+                len(first[0]) if first else 0, "")
         if not algo:
             raise ToolError("Cannot tell which hash this manifest uses. Choose it by hand.")
     algo = algo.lower()
