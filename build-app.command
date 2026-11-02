@@ -132,7 +132,7 @@ VPY="$VENV/bin/python"
 echo "[3/8] Installing dependencies (wheels only, no compiling)..."
 "$VPY" -m pip install --upgrade pip wheel >/dev/null || die "pip would not upgrade."
 "$VPY" -m pip install --only-binary :all: -r "$HERE/requirements.txt" || die "A dependency has no wheel for this Mac."
-"$VPY" -m pip install --only-binary :all: pyinstaller || die "PyInstaller would not install."
+"$VPY" -m pip install --only-binary :all: "pyinstaller>=6.11,<7" || die "PyInstaller would not install."
 
 echo "[4/8] Setting up audio loopback (BlackHole, optional)..."
 ensure_blackhole

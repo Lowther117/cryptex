@@ -1,8 +1,14 @@
+# Every package here has a floor (the oldest version these scripts were
+# tested with) and a ceiling at the next major version. A new major is
+# something to opt into after a test build, never something a routine
+# rebuild discovers for you - PyMuPDF 2.0 broke two builds that way (Nov 2026).
+# (cryptography bumps its major number with nearly every release and
+# argon2-cffi is date-versioned, so neither has a ceiling.)
 cryptography>=42.0
-pillow>=10.0
-numpy>=1.24
+pillow>=10.0,<14
+numpy>=1.24,<3
 argon2-cffi>=23.1
-imageio-ffmpeg>=0.4.9
-sounddevice>=0.4.6
-soundcard>=0.4.6
-segno>=1.6
+imageio-ffmpeg>=0.4.9,<1
+sounddevice>=0.4.6,<1
+soundcard>=0.4.6,<1
+segno>=1.6,<2
