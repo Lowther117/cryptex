@@ -75,7 +75,7 @@ class App(ttk.Frame):
         super().__init__(root)
         self.root = root
         self.settings = self._load_settings()
-        self.theme_name = theme.from_settings(self.settings)   # phosphor purple by default
+        self.theme_name = theme.from_settings(self.settings)   # phosphor glass by default
         self.dark = theme.is_dark(self.theme_name)
         self.c = theme.apply(root, self.theme_name)
         self.mono = theme.mono_family(root)

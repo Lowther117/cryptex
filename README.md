@@ -823,9 +823,9 @@ use it, a worked example, and an amber caution line where one is warranted
 (*"Historical cipher — trivially broken. Never use it to protect anything
 real."*). Fold the panel away from **View** once you no longer need it.
 
-**Phosphor purple by default** (the same look as Winnow), with the original
+**Phosphor glass by default** (the same look as the website), with Phosphor purple, the original
 dark and a light theme a keystroke away: Ctrl+D, or the button top right,
-cycles Phosphor → Dark → Light. In every theme anything you can type in or click sits on a different
+cycles Glass → Phosphor → Dark → Light. In every theme anything you can type in or click sits on a different
 shade from the surface behind it, carries a real border, and gets an accent
 ring when it has focus — so an input never has to be hunted for.
 
